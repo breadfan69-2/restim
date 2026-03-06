@@ -202,6 +202,8 @@ class ScriptMappingModel(QAbstractItemModel):
             if isinstance(index.internalPointer(), FunscriptTreeItem):
                 if index.internalPointer().has_broken_script():
                     return Qt.NoItemFlags
+                elif not index.internalPointer().enabled:
+                    return Qt.ItemIsEnabled
                 else:
                     return Qt.ItemIsEnabled | Qt.ItemIsEditable
             return Qt.ItemIsEnabled | Qt.ItemIsEditable

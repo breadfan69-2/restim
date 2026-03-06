@@ -93,7 +93,7 @@ def collect_funscripts_grouped(
         new_dirs = []
         collected_files = []
 
-        while dir_stack and len(collected_files) == 0:
+        while dir_stack:
             try:
                 current_dir = os.path.expanduser(dir_stack[0])
                 del dir_stack[0]
