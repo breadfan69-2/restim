@@ -141,6 +141,22 @@ class ScriptMappingModel(QAbstractItemModel):
         else:
             return None
 
+    def _uncheck_conflicts(self, types_to_uncheck: set[str], exclude_category: ResourceCategory = None):
+        """Uncheck enabled files in other categories that have a matching funscript_type."""
+        for cat in self._funscripts_auto_categories:
+            if cat is exclude_category:
+                continue
+            cat_changed = False
+            cat_idx = self.createIndex(cat.row(), 0, cat)
+            for row, child in enumerate(cat.children):
+                if isinstance(child, FunscriptTreeItem) and child.enabled and child.funscript_type in types_to_uncheck:
+                    child.enabled = False
+                    cat_changed = True
+                    child_idx = self.index(row, 0, cat_idx)
+                    self.dataChanged.emit(child_idx, child_idx, [Qt.CheckStateRole])
+            if cat_changed:
+                self.dataChanged.emit(cat_idx, cat_idx, [Qt.CheckStateRole])
+
     def setData(self, index: QModelIndex, value: typing.Any, role: int = ...) -> bool:
         # print('setData', index.row(), index.column(), value)
         if role == Qt.CheckStateRole and index.column() == 0:
@@ -149,6 +165,8 @@ class ScriptMappingModel(QAbstractItemModel):
             if isinstance(item, FunscriptTreeItem):
                 if item.enabled != new_enabled:
                     item.enabled = new_enabled
+                    if new_enabled and item.funscript_type:
+                        self._uncheck_conflicts({item.funscript_type}, exclude_category=item.parentItem())
                     self.refresh_active_files()
                     self.dataChanged.emit(index, index, [role])
                     # update parent category tri-state
@@ -158,12 +176,17 @@ class ScriptMappingModel(QAbstractItemModel):
                     return True
             elif isinstance(item, ResourceCategory) and item is not self._funscripts_manual:
                 parent_idx = index
+                types_enabled = set()
                 for row in range(item.childCount()):
                     child = item.child(row)
                     if isinstance(child, FunscriptTreeItem):
                         child.enabled = new_enabled
+                        if new_enabled and child.funscript_type:
+                            types_enabled.add(child.funscript_type)
                         child_idx = self.index(row, 0, parent_idx)
                         self.dataChanged.emit(child_idx, child_idx, [Qt.CheckStateRole])
+                if new_enabled and types_enabled:
+                    self._uncheck_conflicts(types_enabled, exclude_category=item)
                 self.refresh_active_files()
                 self.dataChanged.emit(index, index, [role])
                 return True
