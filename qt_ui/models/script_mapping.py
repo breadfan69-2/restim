@@ -46,10 +46,12 @@ class FunscriptTreeItem(TreeItem):
 
         # self.resource = resource
         self.file_name = resource.name()
+        self.file_path = str(resource.path)
         self.funscript_type = resource.funscript_type()
         self.axis = qt_ui.device_wizard.axes.AxisEnum.NONE
         self.is_removable = False
         self.first_of_its_kind = False
+        self.enabled = True
 
         # load funscript immediately. This makes the UI feel sluggish on connecting/disconnecting
         # but has the advantage of not requiring any file IO when audio starts.
@@ -106,22 +108,67 @@ class ScriptMappingModel(QAbstractItemModel):
         if not index.isValid():
             return None
 
+        item = index.internalPointer()
+
+        if role == Qt.CheckStateRole and index.column() == 0:
+            if isinstance(item, FunscriptTreeItem):
+                return Qt.Checked if item.enabled else Qt.Unchecked
+            elif isinstance(item, ResourceCategory) and item is not self._funscripts_manual:
+                states = {child.enabled for child in item.children}
+                if states == {True}:
+                    return Qt.Checked
+                elif states == {False}:
+                    return Qt.Unchecked
+                else:
+                    return Qt.PartiallyChecked
+            return None
+
+        if role == Qt.ToolTipRole:
+            if isinstance(item, FunscriptTreeItem):
+                return item.file_path
+            return None
         if role == Qt.EditRole:
-            item = index.internalPointer()
             return item.edit_data(index.column())
         elif role == Qt.DisplayRole:
-            item = index.internalPointer()
             return item.data(index.column())
         elif role == Qt.ForegroundRole:
-            if isinstance(index.internalPointer(), FunscriptTreeItem):
-                if index.internalPointer().has_broken_script():
+            if isinstance(item, FunscriptTreeItem):
+                if item.has_broken_script():
                     return QColor(255, 0, 0)
+                if not item.enabled:
+                    return QColor(128, 128, 128)
             return None
         else:
             return None
 
     def setData(self, index: QModelIndex, value: typing.Any, role: int = ...) -> bool:
         # print('setData', index.row(), index.column(), value)
+        if role == Qt.CheckStateRole and index.column() == 0:
+            item = index.internalPointer()
+            new_enabled = value == Qt.Checked.value
+            if isinstance(item, FunscriptTreeItem):
+                if item.enabled != new_enabled:
+                    item.enabled = new_enabled
+                    self.refresh_active_files()
+                    self.dataChanged.emit(index, index, [role])
+                    # update parent category tri-state
+                    parent_idx = self.parent(index)
+                    if parent_idx.isValid():
+                        self.dataChanged.emit(parent_idx, parent_idx, [Qt.CheckStateRole])
+                    return True
+            elif isinstance(item, ResourceCategory) and item is not self._funscripts_manual:
+                parent_idx = index
+                for row in range(item.childCount()):
+                    child = item.child(row)
+                    if isinstance(child, FunscriptTreeItem):
+                        child.enabled = new_enabled
+                        child_idx = self.index(row, 0, parent_idx)
+                        self.dataChanged.emit(child_idx, child_idx, [Qt.CheckStateRole])
+                self.refresh_active_files()
+                self.dataChanged.emit(index, index, [role])
+                return True
+            return False
+
         if role == Qt.EditRole:
             if isinstance(index.internalPointer(), FunscriptTreeItem):
                 if index.column() == 1:
@@ -137,12 +184,16 @@ class ScriptMappingModel(QAbstractItemModel):
         if not index.isValid():
             return Qt.NoItemFlags
 
+        item = index.internalPointer()
+
         if index.column() == 0:
-            if isinstance(index.internalPointer(), FunscriptTreeItem):
-                if index.internalPointer().first_of_its_kind:
-                    return Qt.ItemIsEnabled
-                else:
-                    return Qt.NoItemFlags
+            if isinstance(item, FunscriptTreeItem):
+                base = Qt.ItemIsEnabled | Qt.ItemIsUserCheckable
+                if not item.first_of_its_kind:
+                    base &= ~Qt.ItemIsEnabled
+                return base
+            elif isinstance(item, ResourceCategory) and item is not self._funscripts_manual:
+                return Qt.ItemIsEnabled | Qt.ItemIsUserCheckable | Qt.ItemIsAutoTristate
 
             return Qt.ItemIsEnabled
         elif index.column() == 1:
@@ -229,8 +280,11 @@ class ScriptMappingModel(QAbstractItemModel):
     def funscript_conifg(self) -> list[FunscriptTreeItem]:
         return self._funscripts_manual.children + self._all_auto_children()
 
+    def _enabled_items(self) -> list[FunscriptTreeItem]:
+        return [item for item in self.funscript_conifg() if item.enabled]
+
     def get_config_for_axis(self, axis: AxisEnum) -> FunscriptTreeItem | None:
-        for funscript in self._funscripts_manual.children + self._all_auto_children():
+        for funscript in self._enabled_items():
             if funscript.axis == axis:
                 return funscript
         return None
@@ -238,8 +292,9 @@ class ScriptMappingModel(QAbstractItemModel):
     def refresh_active_files(self):
         used = {AxisEnum.NONE}
         for item in self._funscripts_manual.children + self._all_auto_children():
-            use = item.axis not in used
-            used.add(item.axis)
+            use = item.enabled and item.axis not in used
+            if item.enabled:
+                used.add(item.axis)
 
             if use != item.first_of_its_kind:
                 item.first_of_its_kind = use
@@ -256,6 +311,7 @@ class ScriptMappingModel(QAbstractItemModel):
         self._clear_auto_categories()
 
         grouped = collect_funscripts_grouped(search_directories, media_file)
+        is_first_batch = True
         for dir_name, resources in grouped:
             if not resources:
                 continue
@@ -266,7 +322,9 @@ class ScriptMappingModel(QAbstractItemModel):
             for res in resources:
                 item = FunscriptTreeItem(res)
                 item.parent = category
+                item.enabled = is_first_batch
                 category.appendChild(item)
+            is_first_batch = False
         return dirty
 
     def _clear_auto_categories(self):

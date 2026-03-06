@@ -142,13 +142,21 @@ def collect_funscripts_grouped(
     media_prefix, _, media_extension = split_funscript_path(media)
 
     grouped_results = []
+    seen_paths = set()
     for search_dir in dirs:
         resources = process_dir(search_dir, media_prefix)
-        if resources:
+        # deduplicate: skip files already found in an earlier batch
+        unique = []
+        for r in resources:
+            norm = os.path.normcase(os.path.normpath(str(r.path)))
+            if norm not in seen_paths:
+                seen_paths.add(norm)
+                unique.append(r)
+        if unique:
             # strip trailing /* for display
             display_dir = search_dir
             if display_dir.endswith('/*'):
                 display_dir = display_dir[:-2]
-            grouped_results.append((display_dir, resources))
+            grouped_results.append((display_dir, unique))
 
     return grouped_results

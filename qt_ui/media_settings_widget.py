@@ -128,7 +128,7 @@ class MediaSettingsWidget(QtWidgets.QWidget, Ui_MediaSettingsWidget, metaclass=_
         self.detect_resources_for_media_file(self.loaded_media_path)
 
     def on_data_changed(self, topleft, bottomright, roles):
-        if Qt.EditRole in roles:
+        if Qt.EditRole in roles or Qt.CheckStateRole in roles:
             # print('on data changed', roles, topleft.row(), bottomright.row())
             self.funscriptMappingChanged.emit()
 
@@ -189,7 +189,19 @@ class MediaSettingsWidget(QtWidgets.QWidget, Ui_MediaSettingsWidget, metaclass=_
             dirname = os.path.dirname(new_path)
             basename = os.path.basename(new_path)
             extra_paths = settings.additional_search_paths.get()
-            search_paths = [dirname] + extra_paths
+            # Deduplicate: keep order, skip additional paths that resolve to the media dir
+            seen = set()
+            search_paths = []
+            for p in [dirname] + extra_paths:
+                norm = os.path.normcase(os.path.normpath(p.rstrip('/*')))
+                suffix = '/*' if p.endswith('/*') else ''
+                if norm not in seen:
+                    seen.add(norm)
+                    search_paths.append(p)
+                elif suffix and (norm + '/*') not in seen:
+                    # same base dir but recursive variant not yet added
+                    seen.add(norm + '/*')
+                    search_paths.append(p)
 
             self.model.beginResetModel()
             dirty |= self.model.clear_auto_detected_funscripts()
