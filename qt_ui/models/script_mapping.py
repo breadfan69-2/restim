@@ -329,7 +329,7 @@ class ScriptMappingModel(QAbstractItemModel):
 
             if use != item.first_of_its_kind:
                 item.first_of_its_kind = use
-                index = self.createIndex(item.row(), 0, item.parent)
+                index = self.createIndex(item.row(), 0, item)
                 self.dataChanged.emit(index, index, [Qt.DisplayRole])
 
     def detect_funscripts_from_path(self, search_directories: [str], media_file: str) -> bool:
