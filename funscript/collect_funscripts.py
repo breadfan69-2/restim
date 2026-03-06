@@ -101,9 +101,9 @@ def collect_funscripts_grouped(
 
                 logger.info(f'detecting funscripts from {current_dir}')
 
-                if current_dir[-2:]=="/*":
-                    current_dir=current_dir[:-2]
-                    search_subdirectories=True
+                if current_dir.endswith('/*'):
+                    current_dir = current_dir[:-2]
+                    search_subdirectories = True
                 else:
                     search_subdirectories = False
 
@@ -137,8 +137,8 @@ def collect_funscripts_grouped(
                 if len(collected) == files_before:
                     new_dirs.extend(media_prefix_dirs)
 
-            except OSError as e:    # unreachable network?
-                pass
+            except OSError as e:
+                logger.warning(f'Could not access directory: {current_dir} ({e})')
 
             # make sure to search dirs before zipfiles
             new_zips = list(filter(path_is_zip, new_dirs))

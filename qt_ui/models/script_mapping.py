@@ -157,51 +157,75 @@ class ScriptMappingModel(QAbstractItemModel):
             if cat_changed:
                 self.dataChanged.emit(cat_idx, cat_idx, [Qt.CheckStateRole])
 
+    def _toggle_funscript_item(self, index: QModelIndex, item: FunscriptTreeItem, new_enabled: bool) -> bool:
+        if item.enabled == new_enabled:
+            return False
+        item.enabled = new_enabled
+        if new_enabled and item.funscript_type:
+            self._uncheck_conflicts({item.funscript_type}, exclude_category=item.parentItem())
+        self.refresh_active_files()
+        self.dataChanged.emit(index, index, [Qt.CheckStateRole])
+        parent_idx = self.parent(index)
+        if parent_idx.isValid():
+            self.dataChanged.emit(parent_idx, parent_idx, [Qt.CheckStateRole])
+        return True
+
+    def _toggle_category(self, index: QModelIndex, category: ResourceCategory, new_enabled: bool) -> bool:
+        types_enabled = set()
+        for row in range(category.childCount()):
+            child = category.child(row)
+            if isinstance(child, FunscriptTreeItem):
+                child.enabled = new_enabled
+                if new_enabled and child.funscript_type:
+                    types_enabled.add(child.funscript_type)
+                child_idx = self.index(row, 0, index)
+                self.dataChanged.emit(child_idx, child_idx, [Qt.CheckStateRole])
+        if new_enabled and types_enabled:
+            self._uncheck_conflicts(types_enabled, exclude_category=category)
+        self.refresh_active_files()
+        self.dataChanged.emit(index, index, [Qt.CheckStateRole])
+        return True
+
     def setData(self, index: QModelIndex, value: typing.Any, role: int = ...) -> bool:
-        # print('setData', index.row(), index.column(), value)
         if role == Qt.CheckStateRole and index.column() == 0:
             item = index.internalPointer()
             new_enabled = value == Qt.Checked.value
             if isinstance(item, FunscriptTreeItem):
-                if item.enabled != new_enabled:
-                    item.enabled = new_enabled
-                    if new_enabled and item.funscript_type:
-                        self._uncheck_conflicts({item.funscript_type}, exclude_category=item.parentItem())
-                    self.refresh_active_files()
-                    self.dataChanged.emit(index, index, [role])
-                    # update parent category tri-state
-                    parent_idx = self.parent(index)
-                    if parent_idx.isValid():
-                        self.dataChanged.emit(parent_idx, parent_idx, [Qt.CheckStateRole])
-                    return True
+                return self._toggle_funscript_item(index, item, new_enabled)
             elif isinstance(item, ResourceCategory) and item is not self._funscripts_manual:
-                parent_idx = index
-                types_enabled = set()
-                for row in range(item.childCount()):
-                    child = item.child(row)
-                    if isinstance(child, FunscriptTreeItem):
-                        child.enabled = new_enabled
-                        if new_enabled and child.funscript_type:
-                            types_enabled.add(child.funscript_type)
-                        child_idx = self.index(row, 0, parent_idx)
-                        self.dataChanged.emit(child_idx, child_idx, [Qt.CheckStateRole])
-                if new_enabled and types_enabled:
-                    self._uncheck_conflicts(types_enabled, exclude_category=item)
-                self.refresh_active_files()
-                self.dataChanged.emit(index, index, [role])
-                return True
+                return self._toggle_category(index, item, new_enabled)
             return False
 
         if role == Qt.EditRole:
             if isinstance(index.internalPointer(), FunscriptTreeItem):
                 if index.column() == 1:
                     if index.internalPointer().axis != value:
-                        # only emit signals if data actually changed
                         index.internalPointer().axis = value
                         self.refresh_active_files()
                         self.dataChanged.emit(index, index, [role])
                         return True
         return False
+
+    def _flags_column0(self, item) -> Qt.ItemFlags:
+        if isinstance(item, FunscriptTreeItem):
+            base = Qt.ItemIsEnabled | Qt.ItemIsUserCheckable
+            if not item.first_of_its_kind:
+                base &= ~Qt.ItemIsEnabled
+            return base
+        if isinstance(item, ResourceCategory) and item is not self._funscripts_manual:
+            return Qt.ItemIsEnabled | Qt.ItemIsUserCheckable | Qt.ItemIsAutoTristate
+        return Qt.ItemIsEnabled
+
+    def _flags_column1(self, item) -> Qt.ItemFlags:
+        if isinstance(item, ResourceCategory):
+            return Qt.ItemIsEnabled
+        if isinstance(item, FunscriptTreeItem):
+            if item.has_broken_script():
+                return Qt.NoItemFlags
+            if not item.enabled:
+                return Qt.ItemIsEnabled
+            return Qt.ItemIsEnabled | Qt.ItemIsEditable
+        return Qt.ItemIsEnabled | Qt.ItemIsEditable
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlags:
         if not index.isValid():
@@ -210,29 +234,11 @@ class ScriptMappingModel(QAbstractItemModel):
         item = index.internalPointer()
 
         if index.column() == 0:
-            if isinstance(item, FunscriptTreeItem):
-                base = Qt.ItemIsEnabled | Qt.ItemIsUserCheckable
-                if not item.first_of_its_kind:
-                    base &= ~Qt.ItemIsEnabled
-                return base
-            elif isinstance(item, ResourceCategory) and item is not self._funscripts_manual:
-                return Qt.ItemIsEnabled | Qt.ItemIsUserCheckable | Qt.ItemIsAutoTristate
-
-            return Qt.ItemIsEnabled
+            return self._flags_column0(item)
         elif index.column() == 1:
-            if isinstance(index.internalPointer(), ResourceCategory):
-                return Qt.ItemIsEnabled
-            if isinstance(index.internalPointer(), FunscriptTreeItem):
-                if index.internalPointer().has_broken_script():
-                    return Qt.NoItemFlags
-                elif not index.internalPointer().enabled:
-                    return Qt.ItemIsEnabled
-                else:
-                    return Qt.ItemIsEnabled | Qt.ItemIsEditable
-            return Qt.ItemIsEnabled | Qt.ItemIsEditable
+            return self._flags_column1(item)
         elif index.column() == 2:
             return Qt.ItemIsEnabled
-        # return super(TreeModel, self).flags(index)
 
     def headerData(self, section: int, orientation: Qt.Orientation, role: int = ...) -> typing.Any:
         if orientation == Qt.Horizontal and role == Qt.DisplayRole:
