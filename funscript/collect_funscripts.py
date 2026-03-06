@@ -113,11 +113,14 @@ def collect_funscripts_grouped(
                     traversing_a_zip = False
                     traversable = pathlib.Path(current_dir)
 
+                files_before = len(collected_files)
+                media_prefix_dirs = []
+
                 for node in traversable.iterdir():
                     full_path = os.path.join(current_dir, node.name)
                     if not traversing_a_zip and node.is_dir(): # do not support dir-in-zip
                         if case_insensitive_compare(node.name, media_prefix):
-                            new_dirs.append(full_path)
+                            media_prefix_dirs.append(full_path)
                         elif search_subdirectories:
                             new_dirs.append(full_path+"/*")
                     else:
@@ -127,6 +130,11 @@ def collect_funscripts_grouped(
                                 new_dirs.append(full_path)
                             elif case_insensitive_compare(c, 'funscript'):
                                 collected_files.append(Resource(node))
+
+                # Only search media-prefix subdirs as fallback when
+                # this directory yielded no scripts itself.
+                if len(collected_files) == files_before:
+                    new_dirs.extend(media_prefix_dirs)
 
             except OSError as e:    # unreachable network?
                 pass
