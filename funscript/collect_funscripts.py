@@ -53,9 +53,29 @@ def collect_funscripts(
         media: str
 ) -> list[Resource]:
     """
-    Search the directories in order for funscripts. Stop searching when at least one funscript is found in a directly.
+    Search the directories in order for funscripts. Stop searching when at least one funscript is found in a directory.
     If a directory is found with the same name as the media, search that directory too.
     zipfiles are supported.
+    :param dirs:
+    :param media:
+    :return:
+    """
+    grouped = collect_funscripts_grouped(dirs, media)
+    # flatten for backward compatibility
+    result = []
+    for _dir, resources in grouped:
+        result.extend(resources)
+    return result
+
+
+def collect_funscripts_grouped(
+        dirs: list[str],
+        media: str
+) -> list[tuple[str, list[Resource]]]:
+    """
+    Search all directories for funscripts, returning results grouped by source directory.
+    Each entry is (directory_display_name, [Resource, ...]).
+    Directories are searched in order; results from earlier directories take priority.
     :param dirs:
     :param media:
     :return:
@@ -67,57 +87,68 @@ def collect_funscripts(
         except OSError:
             return False
 
-    dir_stack = dirs[:]
-    new_dirs = []
-    collected_files = []
+    def process_dir(start_dir, media_prefix):
+        """Search a single top-level search path and return all matching resources."""
+        dir_stack = [start_dir]
+        new_dirs = []
+        collected_files = []
+
+        while dir_stack and len(collected_files) == 0:
+            try:
+                current_dir = os.path.expanduser(dir_stack[0])
+                del dir_stack[0]
+
+                logger.info(f'detecting funscripts from {current_dir}')
+
+                if current_dir[-2:]=="/*":
+                    current_dir=current_dir[:-2]
+                    search_subdirectories=True
+                else:
+                    search_subdirectories = False
+
+                try:
+                    traversing_a_zip = True
+                    traversable = zipfile.Path(current_dir)
+                except OSError:
+                    traversing_a_zip = False
+                    traversable = pathlib.Path(current_dir)
+
+                for node in traversable.iterdir():
+                    full_path = os.path.join(current_dir, node.name)
+                    if not traversing_a_zip and node.is_dir(): # do not support dir-in-zip
+                        if case_insensitive_compare(node.name, media_prefix):
+                            new_dirs.append(full_path)
+                        elif search_subdirectories:
+                            new_dirs.append(full_path+"/*")
+                    else:
+                        a, b, c = split_funscript_path(full_path)
+                        if case_insensitive_compare(a, media_prefix):
+                            if not traversing_a_zip and zipfile.is_zipfile(full_path):    # do not support zip-in-zip
+                                new_dirs.append(full_path)
+                            elif case_insensitive_compare(c, 'funscript'):
+                                collected_files.append(Resource(node))
+
+            except OSError as e:    # unreachable network?
+                pass
+
+            # make sure to search dirs before zipfiles
+            new_zips = list(filter(path_is_zip, new_dirs))
+            new_dirs = list(filter(lambda x: not path_is_zip(x), new_dirs))
+            dir_stack = new_dirs + new_zips + dir_stack
+            new_dirs = []
+
+        return collected_files
 
     media_prefix, _, media_extension = split_funscript_path(media)
 
-    while dir_stack and len(collected_files) == 0:
-        try:
-            current_dir = os.path.expanduser(dir_stack[0])
-            del dir_stack[0]
+    grouped_results = []
+    for search_dir in dirs:
+        resources = process_dir(search_dir, media_prefix)
+        if resources:
+            # strip trailing /* for display
+            display_dir = search_dir
+            if display_dir.endswith('/*'):
+                display_dir = display_dir[:-2]
+            grouped_results.append((display_dir, resources))
 
-            logger.info(f'detecting funscripts from {current_dir}')
-
-            if current_dir[-2:]=="/*":
-                current_dir=current_dir[:-2]
-                search_subdirectories=True
-            else:
-                search_subdirectories = False
-
-            try:
-                traversing_a_zip = True
-                traversable = zipfile.Path(current_dir)
-            except OSError:
-                traversing_a_zip = False
-                traversable = pathlib.Path(current_dir)
-
-            for node in traversable.iterdir():
-                full_path = os.path.join(current_dir, node.name)
-                if not traversing_a_zip and node.is_dir(): # do not support dir-in-zip
-                    if case_insensitive_compare(node.name, media_prefix):
-                        new_dirs.append(full_path)
-                    elif search_subdirectories:
-                        new_dirs.append(full_path+"/*")
-                else:
-                    a, b, c = split_funscript_path(full_path)
-                    if case_insensitive_compare(a, media_prefix):
-                        if not traversing_a_zip and zipfile.is_zipfile(full_path):    # do not support zip-in-zip
-                            new_dirs.append(full_path)
-                        elif case_insensitive_compare(c, 'funscript'):
-                            collected_files.append(Resource(node))
-
-
-        except OSError as e:    # unreachable network?
-            pass
-
-        # make sure to search dirs before zipfiles
-        new_zips = list(filter(path_is_zip, new_dirs))
-        new_dirs = list(filter(lambda x: not path_is_zip(x), new_dirs))
-        dir_stack = new_dirs + new_zips + dir_stack
-        new_dirs = []
-
-
-
-    return collected_files
+    return grouped_results

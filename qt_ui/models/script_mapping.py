@@ -14,6 +14,7 @@ from qt_ui.models.tree_item import TreeItem
 from qt_ui.models.funscript_kit import FunscriptKitModel
 from funscript.funscript import Funscript
 import funscript.collect_funscripts
+from funscript.collect_funscripts import collect_funscripts_grouped
 
 logger = logging.getLogger('restim.script_mapping')
 
@@ -99,8 +100,7 @@ class ScriptMappingModel(QAbstractItemModel):
         self._root = HeaderTreeItem()
         self._funscripts_manual = ResourceCategory('Funscripts (manual)', self._root)
         self._root.appendChild(self._funscripts_manual)
-        self._funscripts_auto = ResourceCategory('Funscripts (auto-detected)', self._root)
-        self._root.appendChild(self._funscripts_auto)
+        self._funscripts_auto_categories: list[ResourceCategory] = []
 
     def data(self, index: QModelIndex, role: int = ...) -> typing.Any:
         if not index.isValid():
@@ -214,9 +214,11 @@ class ScriptMappingModel(QAbstractItemModel):
         self.refresh_active_files()
         return True
 
-    def add_funscript_resource_auto(self, item: FunscriptTreeItem):
-        item.parent = self._funscripts_auto
-        self._funscripts_auto.appendChild(item)
+    def _all_auto_children(self) -> list[FunscriptTreeItem]:
+        result = []
+        for cat in self._funscripts_auto_categories:
+            result.extend(cat.children)
+        return result
 
     def add_funscript_resource_manual(self, item: FunscriptTreeItem):
         item.parent = self._funscripts_manual
@@ -225,17 +227,17 @@ class ScriptMappingModel(QAbstractItemModel):
         self.refresh_active_files()
 
     def funscript_conifg(self) -> list[FunscriptTreeItem]:
-        return self._funscripts_manual.children + self._funscripts_auto.children
+        return self._funscripts_manual.children + self._all_auto_children()
 
     def get_config_for_axis(self, axis: AxisEnum) -> FunscriptTreeItem | None:
-        for funscript in self._funscripts_manual.children + self._funscripts_auto.children:
+        for funscript in self._funscripts_manual.children + self._all_auto_children():
             if funscript.axis == axis:
                 return funscript
         return None
 
     def refresh_active_files(self):
         used = {AxisEnum.NONE}
-        for item in self._funscripts_manual.children + self._funscripts_auto.children:
+        for item in self._funscripts_manual.children + self._all_auto_children():
             use = item.axis not in used
             used.add(item.axis)
 
@@ -250,20 +252,32 @@ class ScriptMappingModel(QAbstractItemModel):
         :param media_file: "video.mp4"
         :return:
         """
-        dirty = self._funscripts_auto.childCount() > 0
-        self._funscripts_auto.children.clear()
+        dirty = len(self._funscripts_auto_categories) > 0
+        self._clear_auto_categories()
 
-        resources = funscript.collect_funscripts.collect_funscripts(search_directories, media_file)
-        for res in resources:
+        grouped = collect_funscripts_grouped(search_directories, media_file)
+        for dir_name, resources in grouped:
+            if not resources:
+                continue
             dirty |= True
-            self.add_funscript_resource_auto(FunscriptTreeItem(res))
+            category = ResourceCategory(dir_name, self._root)
+            self._root.appendChild(category)
+            self._funscripts_auto_categories.append(category)
+            for res in resources:
+                item = FunscriptTreeItem(res)
+                item.parent = category
+                category.appendChild(item)
         return dirty
 
+    def _clear_auto_categories(self):
+        for cat in self._funscripts_auto_categories:
+            idx = self._root.children.index(cat)
+            del self._root.children[idx]
+        self._funscripts_auto_categories.clear()
+
     def clear_auto_detected_funscripts(self):
-        if self._funscripts_auto.childCount():
-            self.beginRemoveRows(self.createIndex(0, 0, self._funscripts_auto), 0, self._funscripts_auto.childCount())
-            self._funscripts_auto.children.clear()
-            self.endRemoveRows()
+        if self._funscripts_auto_categories:
+            self._clear_auto_categories()
             return True
         return False
 
@@ -271,6 +285,9 @@ class ScriptMappingModel(QAbstractItemModel):
         for item in self.funscript_conifg():
             self.auto_link_funscript(kit, item)
         self.refresh_active_files()
+
+    def all_auto_categories(self) -> list[ResourceCategory]:
+        return self._funscripts_auto_categories
 
     def auto_link_funscript(self, kit: FunscriptKitModel, item: FunscriptTreeItem):
         if item.has_broken_script():
