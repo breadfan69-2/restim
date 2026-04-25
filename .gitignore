@@ -145,3 +145,11 @@ scripts/analyze_clutch_deep.py
 scripts/analyze_clutch_mp3.py
 scripts/analyze_mcb_funscripts.py
 dist-onefile/
+flash_stm32.py
+restim-fork-sync-guide.md
+restim.ini
+firmware_esp32/bootloader.bin
+firmware_esp32/firmware.bin
+firmware_esp32/focstim_v4_firmware.bin
+firmware_esp32/partitions.bin
+qt_ui/focstim_flash_dialog.py
