@@ -4,7 +4,7 @@ import math
 import time
 
 import numpy as np
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, QCoreApplication, QTimer, Signal
 
 from net.tcode import TCodeCommand
 from stim_math.axis import AbstractAxis
@@ -13,8 +13,12 @@ from stim_math.transforms_4 import abc_to_e1234, apply_electrode_curves, positio
 
 from qt_ui.models.funscript_kit import FunscriptKitModel, FunscriptKitItem
 from qt_ui.device_wizard.axes import AxisEnum
+from qt_ui.device_wizard.enums import DeviceConfiguration, DeviceType
 
 logger = logging.getLogger('restim.tcode')
+
+DIRECT_INTENSITY_BRIDGE_DEFER_MS = 0
+DIRECT_INTENSITY_OVERRIDE_TIMEOUT = 2.0
 
 
 @dataclass
@@ -87,6 +91,17 @@ class TCodeCommandRouter(QObject):
         self.intensity_b = intensity_b
         self.intensity_c = intensity_c
         self.intensity_d = intensity_d
+        self._intensity_axes = (
+            self.intensity_a,
+            self.intensity_b,
+            self.intensity_c,
+            self.intensity_d,
+        )
+        self._last_direct_intensity_update = 0.0
+        self._pending_bridge_interval = 0.0
+        self._bridge_timer = QTimer(self)
+        self._bridge_timer.setSingleShot(True)
+        self._bridge_timer.timeout.connect(self._flush_pending_bridge)
 
         # State for real-time gamma derivation (speed mode)
         self._prev_alpha = 0.0
@@ -134,12 +149,14 @@ class TCodeCommandRouter(QObject):
         mapping = {}
         for child in kit.children:
             child: FunscriptKitItem
-            if len(child.tcode_axis_name) == 2:
+            axis_name = child.tcode_axis_name.strip()
+            if len(axis_name) == 2:
                 if child.axis in axis_enum_to_axis:
                     route = Route(axis_enum_to_axis[child.axis], child.limit_min, child.limit_max)
-                    if child.tcode_axis_name not in mapping:
-                        mapping[child.tcode_axis_name] = route
-            elif len(child.tcode_axis_name) != 0:
+                    axis_name = axis_name.upper()
+                    if axis_name not in mapping:
+                        mapping[axis_name] = route
+            elif len(axis_name) != 0:
                 logger.error(f'Invalid T-Code axis name: {child.tcode_axis_name}. Axis name must be 2 chars.')
 
         self.mapping = mapping
@@ -150,16 +167,46 @@ class TCodeCommandRouter(QObject):
 
     def route_command(self, cmd: TCodeCommand):
         try:
-            route = self.mapping[cmd.axis_identifier]
-            route.axis.add(route.remap(cmd.value), cmd.interval / 1000.0)
+            interval = cmd.interval / 1000.0
+            route = self.mapping[cmd.axis_identifier.upper()]
+            route.axis.add(route.remap(cmd.value), interval)
             self.axis_updated.emit(route.axis)
+            if route.axis in self._intensity_axes and self._is_fourphase_mode():
+                self._last_direct_intensity_update = time.monotonic()
+                self._bridge_timer.stop()
             # Bridge: when alpha or beta is updated via TCode, also compute
             # and write 4-phase electrode intensities (e1-e4).
             # This is pointwise math with zero latency.
             if route.axis is self.alpha or route.axis is self.beta:
-                self._bridge_alpha_beta_to_fourphase(cmd.interval / 1000.0)
+                if self._is_fourphase_mode():
+                    if not self._direct_intensity_input_active():
+                        self._schedule_deferred_bridge(interval)
+                else:
+                    self._bridge_alpha_beta_to_fourphase(interval)
         except KeyError:
             pass
+
+    @staticmethod
+    def _is_fourphase_mode() -> bool:
+        return DeviceConfiguration.from_settings().device_type == DeviceType.FOCSTIM_FOUR_PHASE
+
+    def _direct_intensity_input_active(self) -> bool:
+        if not self._is_fourphase_mode():
+            return False
+        return (time.monotonic() - self._last_direct_intensity_update) <= DIRECT_INTENSITY_OVERRIDE_TIMEOUT
+
+    def _schedule_deferred_bridge(self, interval: float):
+        app = QCoreApplication.instance()
+        if app is None:
+            self._bridge_alpha_beta_to_fourphase(interval)
+            return
+        self._pending_bridge_interval = interval
+        self._bridge_timer.start(DIRECT_INTENSITY_BRIDGE_DEFER_MS)
+
+    def _flush_pending_bridge(self):
+        if self._direct_intensity_input_active():
+            return
+        self._bridge_alpha_beta_to_fourphase(self._pending_bridge_interval)
 
     def _bridge_alpha_beta_to_fourphase(self, interval: float):
         """Convert current alpha/beta values to 4-phase electrode intensities.

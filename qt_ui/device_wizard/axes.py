@@ -109,7 +109,6 @@ class AxisEnum(Enum):
 all_axis = [
     AxisEnum.POSITION_ALPHA,
     AxisEnum.POSITION_BETA,
-    AxisEnum.POSITION_GAMMA,
 
     AxisEnum.VOLUME_API,
     AxisEnum.VOLUME_EXTERNAL,
