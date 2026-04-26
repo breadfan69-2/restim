@@ -314,8 +314,11 @@ class ScriptMappingModel(QAbstractItemModel):
     def _enabled_items(self) -> list[FunscriptTreeItem]:
         return [item for item in self.funscript_conifg() if item.enabled]
 
+    def _active_items(self) -> list[FunscriptTreeItem]:
+        return [item for item in self._enabled_items() if item.first_of_its_kind]
+
     def get_config_for_axis(self, axis: AxisEnum) -> FunscriptTreeItem | None:
-        for funscript in self._enabled_items():
+        for funscript in self._active_items():
             if funscript.axis == axis:
                 return funscript
         return None

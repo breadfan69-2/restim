@@ -59,6 +59,7 @@ class AxisController(QtCore.QObject):
         Behavior: the control gets disables. Periodically, the value shown in the control updates.
         """
         self._tcode_active = False
+        self.internal_axis = None
         self.control.setEnabled(False)
         self.script_axis = script_axis
         self.timer.start()
@@ -98,6 +99,12 @@ class AxisController(QtCore.QObject):
         self.internal_axis.add(self.last_user_entered_value)
         self.set_control_value(self.last_user_entered_value)
         self.control.setEnabled(True)
+
+    def release_tcode_control(self):
+        if self.script_axis or not self._tcode_active or self.internal_axis is None:
+            return
+        self._tcode_last_update = 0.0
+        self._exit_tcode_mode()
 
     modified_by_user = QtCore.Signal()
 
@@ -189,5 +196,11 @@ class GroupboxAxisController(QtCore.QObject):
         self.control.setChecked(self.last_user_entered_value)
         if self.internal_axis:
             self.internal_axis.add(self.last_user_entered_value)
+
+    def release_tcode_control(self):
+        if self.script_axis or not self._tcode_active:
+            return
+        self._tcode_last_update = 0.0
+        self._exit_tcode_mode()
 
     modified_by_user = QtCore.Signal()
