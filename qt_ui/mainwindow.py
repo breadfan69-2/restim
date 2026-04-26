@@ -220,6 +220,8 @@ class Window(QMainWindow, Ui_MainWindow):
         self.comboBox_patternSelect.setMaxVisibleItems(20)
         self.comboBox_patternSelect.setStyleSheet("QComboBox { combobox-popup: 0; }")
         self.comboBox_patternSelect.installEventFilter(self)
+        self.comboBox_patternSelect.view().installEventFilter(self)
+        self.comboBox_patternSelect.view().viewport().installEventFilter(self)
         self.comboBox_patternSelect.currentIndexChanged.connect(self.pattern_selection_changed)
         self.motion_3.set_pattern(self.comboBox_patternSelect.currentText())
         self.doubleSpinBox.valueChanged.connect(self.motion_3.set_velocity)
@@ -390,6 +392,7 @@ class Window(QMainWindow, Ui_MainWindow):
         # Global hotkey listener (starts disabled)
         from qt_ui.global_hotkeys import GlobalHotkeyListener
         self._global_hotkeys = GlobalHotkeyListener(hold_ms=self._SPACE_HOLD_MS, parent=self)
+        self._global_hotkeys.press_triggered.connect(self._on_global_press)
         self._global_hotkeys.long_press_triggered.connect(self._on_global_long_press)
         self._global_hotkeys.short_press_triggered.connect(self._on_global_short_press)
 
@@ -481,7 +484,9 @@ class Window(QMainWindow, Ui_MainWindow):
         Called whenever the loaded funscripts change
         """
         logger.info('funscript mapping changed, re-linking scripts.')
-        if self.page_media.autostart_enabled():
+        if self.finish_controller.is_active():
+            self.autostart_timer.stop()
+        elif self.page_media.autostart_enabled():
             if self.playstate == PlayState.PLAYING:
                 self.signal_stop(PlayState.WAITING_ON_LOAD)
                 self.autostart_timer.start()
@@ -1145,21 +1150,43 @@ class Window(QMainWindow, Ui_MainWindow):
         super().keyReleaseEvent(event)
 
     def eventFilter(self, watched, event):
-        if watched is self.comboBox_patternSelect:
+        combo_widgets = {
+            self.comboBox_patternSelect,
+            self.comboBox_patternSelect.view(),
+            self.comboBox_patternSelect.view().viewport(),
+        }
+        if watched in combo_widgets:
             from PySide6.QtCore import Qt
+            if event.type() == QEvent.Type.ShortcutOverride and event.key() == Qt.Key_Space and self._should_consume_finish_space():
+                self._suppress_pattern_popup()
+                event.accept()
+                return True
             if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key_Space and not event.isAutoRepeat():
                 if self._global_hotkeys.is_running():
-                    if self.finish_controller.is_active() or (self.finish_controller.is_armed() and self._finish_has_scripts_loaded()):
+                    if self._should_consume_finish_space():
+                        self._suppress_pattern_popup()
                         return True
                 if self._handle_finish_space_press():
+                    self._suppress_pattern_popup()
                     return True
             if event.type() == QEvent.Type.KeyRelease and event.key() == Qt.Key_Space and not event.isAutoRepeat():
                 if self._global_hotkeys.is_running():
-                    if self.finish_controller.is_active() or (self.finish_controller.is_armed() and self._finish_has_scripts_loaded()):
+                    if self._should_consume_finish_space():
+                        self._suppress_pattern_popup()
                         return True
                 if self._handle_finish_space_release():
+                    self._suppress_pattern_popup()
                     return True
         return super().eventFilter(watched, event)
+
+    def _should_consume_finish_space(self) -> bool:
+        return self.finish_controller.is_active() or (
+            self.finish_controller.is_armed() and self._finish_has_scripts_loaded()
+        )
+
+    def _suppress_pattern_popup(self):
+        self.comboBox_patternSelect.hidePopup()
+        QTimer.singleShot(0, self.comboBox_patternSelect.hidePopup)
 
     def _handle_finish_space_press(self) -> bool:
         if self.finish_controller.is_active():
@@ -1202,6 +1229,7 @@ class Window(QMainWindow, Ui_MainWindow):
             self._space_held = True
             self._space_press_time = None
             self.finish_controller.activate(self.comboBox_patternSelect.currentData())
+            self._suppress_pattern_popup()
 
     # ------------------------------------------------------------------
     # Global hotkeys (pynput)
@@ -1215,15 +1243,23 @@ class Window(QMainWindow, Ui_MainWindow):
         else:
             self._global_hotkeys.stop()
 
+    def _on_global_press(self):
+        if self.finish_controller.is_active():
+            self.finish_controller.deactivate()
+            self._global_hotkeys.cancel_pending_press()
+            self._suppress_pattern_popup()
+
     def _on_global_long_press(self):
         """Global spacebar or middle-click held long enough → activate Finish."""
         if self.finish_controller.is_armed() and self._finish_has_scripts_loaded():
             self.finish_controller.activate(self.comboBox_patternSelect.currentData())
+            self._suppress_pattern_popup()
 
     def _on_global_short_press(self):
         """Global spacebar or middle-click short tap → deactivate Finish."""
         if self.finish_controller.is_active():
             self.finish_controller.deactivate()
+            self._suppress_pattern_popup()
 
     # ------------------------------------------------------------------
     # Pattern / funscript interaction

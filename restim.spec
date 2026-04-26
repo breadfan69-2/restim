@@ -5,7 +5,7 @@ a = Analysis(
     ['restim.py'],
     pathex=['.'],
     binaries=[],
-    datas=[('resources/favicon.png', 'resources/'), ('resources/phase diagram bg.svg', 'resources/'), ('event_definitions', 'qt_ui/event_definitions')],
+    datas=[('resources/favicon.png', 'resources/'), ('resources/phase diagram bg.svg', 'resources/'), ('event_definitions', 'qt_ui/event_definitions'), ('restim.ini', '.')],
     hiddenimports=['pynput.keyboard._win32', 'pynput.mouse._win32', 'pynput._util.win32'],
     hookspath=['pyinstaller-hooks'],
     hooksconfig={},

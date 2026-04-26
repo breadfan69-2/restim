@@ -1,11 +1,54 @@
+from pathlib import Path
+import shutil
+import sys
+
 from PySide6.QtCore import QSettings
-import os
+
+
+_settings_instance = None
+
+
+def _get_settings_path() -> Path:
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).resolve().parent / 'restim.ini'
+    return Path(__file__).resolve().parent.parent / 'restim.ini'
+
+
+def _get_default_settings_path() -> Path:
+    if getattr(sys, 'frozen', False):
+        bundle_dir = getattr(sys, '_MEIPASS', None)
+        if bundle_dir is not None:
+            bundled_settings = Path(bundle_dir) / 'restim.ini'
+            if bundled_settings.exists():
+                return bundled_settings
+    return Path(__file__).resolve().parent.parent / 'restim.ini'
+
+
+def _merge_missing_keys(settings: QSettings, defaults_path: Path):
+    default_settings = QSettings(str(defaults_path), QSettings.IniFormat)
+    missing_keys = [key for key in default_settings.allKeys() if not settings.contains(key)]
+    for key in missing_keys:
+        settings.setValue(key, default_settings.value(key))
+    if missing_keys:
+        settings.sync()
 
 
 def get_settings_instance():
-    cwd = os.getcwd()
-    path = os.path.join(cwd, 'restim.ini')
-    return QSettings(path, QSettings.IniFormat)
+    global _settings_instance
+
+    if _settings_instance is None:
+        settings_path = _get_settings_path()
+        defaults_path = _get_default_settings_path()
+
+        if defaults_path.exists() and defaults_path.resolve() != settings_path.resolve() and not settings_path.exists():
+            shutil.copyfile(defaults_path, settings_path)
+
+        _settings_instance = QSettings(str(settings_path), QSettings.IniFormat)
+
+        if defaults_path.exists() and defaults_path.resolve() != settings_path.resolve():
+            _merge_missing_keys(_settings_instance, defaults_path)
+
+    return _settings_instance
 
 
 class Setting:

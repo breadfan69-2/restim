@@ -39,6 +39,7 @@ class GlobalHotkeyListener(QtCore.QObject):
     short_press_triggered : emitted on short press (release before threshold)
     """
 
+    press_triggered = QtCore.Signal()       # physical press started
     long_press_triggered = QtCore.Signal()   # held long enough → activate
     short_press_triggered = QtCore.Signal()  # quick tap → deactivate
 
@@ -155,6 +156,8 @@ class GlobalHotkeyListener(QtCore.QObject):
             self._timer = threading.Timer(self._hold_ms, self._hold_timeout)
             self._timer.daemon = True
             self._timer.start()
+        QtCore.QMetaObject.invokeMethod(
+            self, '_emit_press', QtCore.Qt.ConnectionType.QueuedConnection)
 
     def _handle_release(self):
         with self._lock:
@@ -186,6 +189,10 @@ class GlobalHotkeyListener(QtCore.QObject):
     # ------------------------------------------------------------------
 
     @QtCore.Slot()
+    def _emit_press(self):
+        self.press_triggered.emit()
+
+    @QtCore.Slot()
     def _emit_long_press(self):
         self.long_press_triggered.emit()
 
@@ -205,3 +212,9 @@ class GlobalHotkeyListener(QtCore.QObject):
         if self._timer is not None:
             self._timer.cancel()
             self._timer = None
+
+    def cancel_pending_press(self):
+        with self._lock:
+            self._cancel_timer_unlocked()
+            self._press_time = None
+            self._held = False
