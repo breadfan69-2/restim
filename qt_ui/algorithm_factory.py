@@ -14,7 +14,7 @@ from stim_math.audio_gen.params import *
 from qt_ui.models.funscript_kit import FunscriptKitModel
 from qt_ui.models.script_mapping import ScriptMappingModel
 from qt_ui.device_wizard.axes import AxisEnum
-from stim_math.axis import create_precomputed_axis, AbstractTimestampMapper, create_constant_axis, AbstractMediaSync
+from stim_math.axis import create_precomputed_axis, AbstractTimestampMapper, create_constant_axis, AbstractMediaSync, OverrideAxis
 
 logger = logging.getLogger('restim.algorithm_factory')
 
@@ -27,6 +27,7 @@ class AlgorithmFactory:
                  media_sync: AbstractMediaSync,
                  load_funscripts: bool = True,
                  create_for_bake: bool = False,
+                 runtime_finish_override: bool = False,
                  ):
         # TODO: not very nice to reference mainwindow...
         self.mainwindow = mainwindow
@@ -36,6 +37,7 @@ class AlgorithmFactory:
         self.media_sync = media_sync
         self.load_funscripts = load_funscripts
         self.create_for_bake = create_for_bake
+        self.runtime_finish_override = runtime_finish_override
         self._fourphase_fallback_cache = None  # lazy-computed (e1, e2, e3, e4) axes
         self._threephase_fallback_cache = None  # lazy-computed (alpha, beta) axes from 1D funscript
         self._pulse_auto_derive_cache = None  # lazy-computed pulse param axes
@@ -250,25 +252,31 @@ class AlgorithmFactory:
         return algorithm
 
     def get_axis_alpha(self):
-        return self.get_axis_from_script_mapping(AxisEnum.POSITION_ALPHA) or self._get_threephase_fallback('alpha') or self.mainwindow.alpha
+        axis = self.get_axis_from_script_mapping(AxisEnum.POSITION_ALPHA) or self._get_threephase_fallback('alpha') or self.mainwindow.alpha
+        return self._wrap_finish_override(axis, self.mainwindow.alpha)
 
     def get_axis_beta(self):
-        return self.get_axis_from_script_mapping(AxisEnum.POSITION_BETA) or self._get_threephase_fallback('beta') or self.mainwindow.beta
+        axis = self.get_axis_from_script_mapping(AxisEnum.POSITION_BETA) or self._get_threephase_fallback('beta') or self.mainwindow.beta
+        return self._wrap_finish_override(axis, self.mainwindow.beta)
 
     def get_axis_gamma(self):
         return self.get_axis_from_script_mapping(AxisEnum.POSITION_GAMMA) or create_constant_axis(0.0)
 
     def get_axis_intensity_a(self):
-        return self.get_axis_from_script_mapping(AxisEnum.INTENSITY_A) or self._get_fourphase_fallback(0) or self.mainwindow.intensity_a
+        axis = self.get_axis_from_script_mapping(AxisEnum.INTENSITY_A) or self._get_fourphase_fallback(0) or self.mainwindow.intensity_a
+        return self._wrap_finish_override(axis, self.mainwindow.intensity_a)
 
     def get_axis_intensity_b(self):
-        return self.get_axis_from_script_mapping(AxisEnum.INTENSITY_B) or self._get_fourphase_fallback(1) or self.mainwindow.intensity_b
+        axis = self.get_axis_from_script_mapping(AxisEnum.INTENSITY_B) or self._get_fourphase_fallback(1) or self.mainwindow.intensity_b
+        return self._wrap_finish_override(axis, self.mainwindow.intensity_b)
 
     def get_axis_intensity_c(self):
-        return self.get_axis_from_script_mapping(AxisEnum.INTENSITY_C) or self._get_fourphase_fallback(2) or self.mainwindow.intensity_c
+        axis = self.get_axis_from_script_mapping(AxisEnum.INTENSITY_C) or self._get_fourphase_fallback(2) or self.mainwindow.intensity_c
+        return self._wrap_finish_override(axis, self.mainwindow.intensity_c)
 
     def get_axis_intensity_d(self):
-        return self.get_axis_from_script_mapping(AxisEnum.INTENSITY_D) or self._get_fourphase_fallback(3) or self.mainwindow.intensity_d
+        axis = self.get_axis_from_script_mapping(AxisEnum.INTENSITY_D) or self._get_fourphase_fallback(3) or self.mainwindow.intensity_d
+        return self._wrap_finish_override(axis, self.mainwindow.intensity_d)
 
     def _get_threephase_fallback(self, component: str):
         """Return a precomputed alpha or beta axis by auto-converting a bare 1D funscript.
@@ -567,7 +575,8 @@ class AlgorithmFactory:
         return axes
 
     def get_axis_volume_api(self):
-        return self.get_axis_from_script_mapping(AxisEnum.VOLUME_API) or self.mainwindow.tab_volume.axis_api_volume
+        axis = self.get_axis_from_script_mapping(AxisEnum.VOLUME_API) or self.mainwindow.tab_volume.axis_api_volume
+        return self._wrap_finish_override(axis, self.mainwindow.tab_volume.axis_api_volume)
 
     def get_axis_volume_master(self):
         if self.create_for_bake:
@@ -593,18 +602,21 @@ class AlgorithmFactory:
 
     def get_axis_pulse_carrier_frequency(self):
         default = self.mainwindow.tab_pulse_settings.axis_carrier_frequency
-        return self.get_axis_from_script_mapping(AxisEnum.CARRIER_FREQUENCY) or \
+        axis = self.get_axis_from_script_mapping(AxisEnum.CARRIER_FREQUENCY) or \
                self._get_pulse_auto_derive('carrier_frequency') or default
+        return self._wrap_finish_override(axis, default)
 
     def get_axis_pulse_frequency(self):
-        return self.get_axis_from_script_mapping(AxisEnum.PULSE_FREQUENCY) or \
+        axis = self.get_axis_from_script_mapping(AxisEnum.PULSE_FREQUENCY) or \
                self._get_pulse_auto_derive('pulse_frequency') or \
                self.mainwindow.tab_pulse_settings.axis_pulse_frequency
+        return self._wrap_finish_override(axis, self.mainwindow.tab_pulse_settings.axis_pulse_frequency)
 
     def get_axis_pulse_width(self):
-        return self.get_axis_from_script_mapping(AxisEnum.PULSE_WIDTH) or \
+        axis = self.get_axis_from_script_mapping(AxisEnum.PULSE_WIDTH) or \
                self._get_pulse_auto_derive('pulse_width') or \
                self.mainwindow.tab_pulse_settings.axis_pulse_width
+        return self._wrap_finish_override(axis, self.mainwindow.tab_pulse_settings.axis_pulse_width)
 
     def get_axis_pulse_interval_random(self):
         return self.get_axis_from_script_mapping(AxisEnum.PULSE_INTERVAL_RANDOM) or \
@@ -614,6 +626,14 @@ class AlgorithmFactory:
         return self.get_axis_from_script_mapping(AxisEnum.PULSE_RISE_TIME) or \
             self._get_pulse_auto_derive('pulse_rise_time') or \
             self.mainwindow.tab_pulse_settings.axis_pulse_rise_time
+
+    def _is_finish_override_active(self) -> bool:
+        return self.runtime_finish_override and self.mainwindow.finish_controller.is_controlling_output()
+
+    def _wrap_finish_override(self, axis, override_axis):
+        if axis is None or override_axis is None or axis is override_axis or not self.runtime_finish_override:
+            return axis
+        return OverrideAxis(axis, override_axis, self._is_finish_override_active)
 
     def get_axis_vib1_all(self):
         return VibrationParams(

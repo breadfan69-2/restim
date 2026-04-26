@@ -4,7 +4,7 @@ import logging
 import numpy as np
 from PySide6 import QtCore
 import qt_ui.settings
-from stim_math.axis import AbstractAxis, WriteProtectedAxis
+from stim_math.axis import AbstractAxis, is_script_axis
 from stim_math.transforms import half_angle_to_full
 from stim_math.transforms_4 import abc_to_e1234, apply_electrode_curves, position_based_gamma
 from qt_ui.patterns.threephase.base import get_registered_patterns, get_patterns_by_category
@@ -149,8 +149,8 @@ class ThreephaseMotionGenerator(QtCore.QObject):
             self._snapshot_extra_axes()
 
     def set_scripts(self, alpha, beta):
-        self.script_alpha = alpha if isinstance(alpha, WriteProtectedAxis) else None
-        self.script_beta = beta if isinstance(beta, WriteProtectedAxis) else None
+        self.script_alpha = alpha if is_script_axis(alpha) else None
+        self.script_beta = beta if is_script_axis(beta) else None
 
     def any_scripts_loaded(self):
         return (self.script_alpha, self.script_beta) != (None, None)
@@ -161,6 +161,26 @@ class ThreephaseMotionGenerator(QtCore.QObject):
     def set_loop_speed(self, speed: float):
         """Set extra loop speed multiplier for YAML event patterns."""
         self.loop_speed = max(0.1, min(10.0, speed))
+
+    def can_finish_pattern(self, pattern) -> bool:
+        return pattern is self.mouse_pattern or pattern in self.patterns
+
+    def activate_finish_pattern(self, pattern) -> bool:
+        if not self.can_finish_pattern(pattern):
+            return False
+        self._finish_pattern = self.mouse_pattern if pattern is self.mouse_pattern else pattern
+        self._finish_active = True
+        self._finish_ramping_in = True
+        self._finish_ramp_start = time.time()
+        self._finish_ramp_out = False
+        self._snapshot_extra_axes()
+        self._pattern_controls_extra = True
+        self.finish_state_changed.emit(True)
+        logger.info(f"Finish activated: {self._finish_pattern.name()}")
+        return True
+
+    def is_finish_controlling_output(self) -> bool:
+        return self._finish_active or self._finish_pattern is not None or self._finish_ramp_start is not None
 
     def timeout(self):
         dt = time.time() - self.last_update_time
@@ -370,16 +390,7 @@ class ThreephaseMotionGenerator(QtCore.QObject):
         """Activate finish mode — crossfade from funscript to pattern."""
         if not self._finish_armed:
             return
-        self._finish_pattern = self.pattern
-        self._finish_active = True
-        self._finish_ramping_in = True
-        self._finish_ramp_start = time.time()
-        self._finish_ramp_out = False
-        # Snapshot extra axes before overlay
-        self._snapshot_extra_axes()
-        self._pattern_controls_extra = True
-        self.finish_state_changed.emit(True)
-        logger.info(f"Finish activated: {self._finish_pattern.name()}")
+        self.activate_finish_pattern(self.pattern)
 
     def deactivate_finish(self):
         """Deactivate finish mode — crossfade back to funscript."""

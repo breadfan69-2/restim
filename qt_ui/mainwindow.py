@@ -3,7 +3,7 @@ import sys
 from enum import Enum
 
 from PySide6 import QtGui
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QEvent, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QSizePolicy, QFrame, QStyleFactory,
@@ -17,6 +17,7 @@ from qt_ui.audio_write_dialog import AudioWriteDialog
 from qt_ui.main_window_ui import Ui_MainWindow
 import qt_ui.patterns.threephase_patterns
 import qt_ui.patterns.fourphase_patterns
+from qt_ui.patterns.finish_controller import FinishController
 from device.audio.audio_stim_device import AudioStimDevice
 import net.websocketserver
 import net.tcpudpserver
@@ -194,6 +195,9 @@ class Window(QMainWindow, Ui_MainWindow):
 
         self.motion_4 = qt_ui.patterns.fourphase_patterns.FourphaseMotionGenerator(
             self, self.intensity_a, self.intensity_b, self.intensity_c, self.intensity_d)
+        self.finish_controller = FinishController(self)
+        self.finish_controller.register_driver(self.motion_3)
+        self.finish_controller.register_driver(self.motion_4)
         self.graphicsView_fourphase.mousePositionChanged.connect(self.motion_4.mouse_event)
         self.motion_4.position_updated.connect(self.graphicsView_fourphase.set_electrode_intensities)
         self.motion_4.position_updated.connect(self.graphicsView_fourphase_3d.set_electrode_intensities)
@@ -215,6 +219,7 @@ class Window(QMainWindow, Ui_MainWindow):
 
         self.comboBox_patternSelect.setMaxVisibleItems(20)
         self.comboBox_patternSelect.setStyleSheet("QComboBox { combobox-popup: 0; }")
+        self.comboBox_patternSelect.installEventFilter(self)
         self.comboBox_patternSelect.currentIndexChanged.connect(self.pattern_selection_changed)
         self.motion_3.set_pattern(self.comboBox_patternSelect.currentText())
         self.doubleSpinBox.valueChanged.connect(self.motion_3.set_velocity)
@@ -375,14 +380,11 @@ class Window(QMainWindow, Ui_MainWindow):
 
         # ----- Patterns menu -----
         self._setup_patterns_menu()
-        self._restore_pattern_settings()
-
-        # ----- Arm Finish button (above Start/Stop in toolbar) -----
-        self._setup_finish_button()
 
         # ----- Hotkey state (foreground fallback + global) -----
         self._space_press_time = None
         self._space_held = False
+        self._space_release_captured = False
         self._SPACE_HOLD_MS = 800  # ms to hold for long-press
 
         # Global hotkey listener (starts disabled)
@@ -390,6 +392,10 @@ class Window(QMainWindow, Ui_MainWindow):
         self._global_hotkeys = GlobalHotkeyListener(hold_ms=self._SPACE_HOLD_MS, parent=self)
         self._global_hotkeys.long_press_triggered.connect(self._on_global_long_press)
         self._global_hotkeys.short_press_triggered.connect(self._on_global_short_press)
+
+        # ----- Arm Finish button (above Start/Stop in toolbar) -----
+        self._setup_finish_button()
+        self._restore_pattern_settings()
 
         self.iconMedia = IconWithConnectionStatus(self.actionMedia.icon(), self.toolBar.widgetForAction(self.actionMedia))
         self.actionMedia.setIcon(QIcon(self.iconMedia))
@@ -490,6 +496,7 @@ class Window(QMainWindow, Ui_MainWindow):
             self.page_media.current_media_sync(),
             self.page_media.current_media_sync(),
             load_funscripts=not self.page_media.is_internal(),
+            runtime_finish_override=True,
         )
 
         # 3-phase visualization
@@ -539,6 +546,8 @@ class Window(QMainWindow, Ui_MainWindow):
 
         # neostim tab
         # TODO
+
+        self._update_pattern_interaction_state()
 
         if all((not self.page_media.is_internal(),
                 self.page_media.has_media_file_loaded(),
@@ -650,6 +659,7 @@ class Window(QMainWindow, Ui_MainWindow):
             is_threephase = pattern in self.motion_3.patterns
             is_fourphase = pattern in self.motion_4.patterns
             self.motion_3.set_write_position(is_threephase and not is_fourphase)
+        self._update_finish_pattern_note()
 
     def signal_start_stop(self):
         if self.playstate == PlayState.STOPPED:
@@ -1047,30 +1057,65 @@ class Window(QMainWindow, Ui_MainWindow):
         # Insert before the Start action in the toolbar
         self.toolBar.insertAction(self.actionStart, self.actionArmFinish)
 
+        self.finish_pattern_note = QLabel(self)
+        self.finish_pattern_note.setToolTip("Pattern selected for Finish")
+        self.finish_pattern_note.setStyleSheet("color: palette(mid);")
+        self.toolBar.insertWidget(self.actionStart, self.finish_pattern_note)
+        self._update_finish_pattern_note()
+
         # Connect finish state changes to update button appearance
-        self.motion_3.finish_state_changed.connect(self._on_finish_state_changed)
+        self.finish_controller.finish_state_changed.connect(self._on_finish_state_changed)
 
     def _on_arm_finish_toggled(self, checked):
-        self.motion_3.arm_finish(checked)
+        if checked and not self._finish_has_scripts_loaded():
+            self.finish_controller.set_armed(False)
+            qt_ui.settings.patterns_finish_armed.set(False)
+            self.actionArmFinish.blockSignals(True)
+            self.actionArmFinish.setChecked(False)
+            self.actionArmFinish.blockSignals(False)
+            self.actionArmFinish.setText("Arm\nFinish")
+            self.statusBar().showMessage("Finish requires active scripted playback", 3000)
+            self._update_finish_pattern_note()
+            self._update_pattern_interaction_state()
+            return
+
+        self.finish_controller.set_armed(checked)
         qt_ui.settings.patterns_finish_armed.set(checked)
         if checked:
             self.actionArmFinish.setText("Finish\nArmed")
         else:
             self.actionArmFinish.setText("Arm\nFinish")
+        self._update_finish_pattern_note()
+        self._update_pattern_interaction_state()
 
     def _on_finish_state_changed(self, active):
         """Update UI when finish mode activates/deactivates."""
         if active:
             self.actionArmFinish.setText("Finish\nACTIVE")
-            pattern_name = getattr(self.motion_3, '_finish_pattern', None)
+            pattern_name = self.finish_controller.current_pattern()
             pattern_name = pattern_name.name() if pattern_name else 'pattern'
             self.statusBar().showMessage(f"Finish ACTIVE — {pattern_name}")
-        elif self.motion_3.is_finish_armed():
+        elif self.finish_controller.is_armed():
             self.actionArmFinish.setText("Finish\nArmed")
-            self.statusBar().showMessage("Finish deactivated — returning to funscript", 3000)
+            self.statusBar().showMessage("Finish deactivated — returning to scripted playback", 3000)
         else:
             self.actionArmFinish.setText("Arm\nFinish")
             self.statusBar().clearMessage()
+        self._update_finish_pattern_note()
+        self._update_pattern_interaction_state()
+
+    def _update_finish_pattern_note(self):
+        pattern_name = self.comboBox_patternSelect.currentText()
+        if not pattern_name:
+            pattern = self.finish_controller.current_pattern() or getattr(self.motion_3, 'pattern', None)
+            if pattern is not None and hasattr(pattern, 'name'):
+                pattern_name = pattern.name()
+            else:
+                pattern_name = 'Mouse'
+
+        short_name = pattern_name if len(pattern_name) <= 20 else pattern_name[:17] + '...'
+        self.finish_pattern_note.setText(f"Finish: {short_name}")
+        self.finish_pattern_note.setToolTip(f"Pattern selected for Finish: {pattern_name}")
 
     # ------------------------------------------------------------------
     # Spacebar / middle-click long-press for Finish
@@ -1084,19 +1129,7 @@ class Window(QMainWindow, Ui_MainWindow):
             return
         from PySide6.QtCore import Qt
         if event.key() == Qt.Key_Space and not event.isAutoRepeat():
-            if self.motion_3.is_finish_active():
-                self.motion_3.deactivate_finish()
-                self._space_press_time = None
-                return
-            if self.motion_3.is_finish_armed() and self.motion_3.any_scripts_loaded():
-                import time as _time
-                self._space_press_time = _time.time()
-                self._space_held = False
-                if not hasattr(self, '_space_timer'):
-                    self._space_timer = QTimer(self)
-                    self._space_timer.setSingleShot(True)
-                    self._space_timer.timeout.connect(self._space_hold_timeout)
-                self._space_timer.start(self._SPACE_HOLD_MS)
+            if self._handle_finish_space_press():
                 return
         super().keyPressEvent(event)
 
@@ -1107,18 +1140,68 @@ class Window(QMainWindow, Ui_MainWindow):
             return
         from PySide6.QtCore import Qt
         if event.key() == Qt.Key_Space and not event.isAutoRepeat():
-            if self._space_press_time is not None and not self._space_held:
-                self._space_press_time = None
-                if hasattr(self, '_space_timer'):
-                    self._space_timer.stop()
+            if self._handle_finish_space_release():
+                return
         super().keyReleaseEvent(event)
+
+    def eventFilter(self, watched, event):
+        if watched is self.comboBox_patternSelect:
+            from PySide6.QtCore import Qt
+            if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key_Space and not event.isAutoRepeat():
+                if self._global_hotkeys.is_running():
+                    if self.finish_controller.is_active() or (self.finish_controller.is_armed() and self._finish_has_scripts_loaded()):
+                        return True
+                if self._handle_finish_space_press():
+                    return True
+            if event.type() == QEvent.Type.KeyRelease and event.key() == Qt.Key_Space and not event.isAutoRepeat():
+                if self._global_hotkeys.is_running():
+                    if self.finish_controller.is_active() or (self.finish_controller.is_armed() and self._finish_has_scripts_loaded()):
+                        return True
+                if self._handle_finish_space_release():
+                    return True
+        return super().eventFilter(watched, event)
+
+    def _handle_finish_space_press(self) -> bool:
+        if self.finish_controller.is_active():
+            self.finish_controller.deactivate()
+            self._space_press_time = None
+            self._space_held = False
+            self._space_release_captured = True
+            return True
+        if self.finish_controller.is_armed() and self._finish_has_scripts_loaded():
+            import time as _time
+            self._space_press_time = _time.time()
+            self._space_held = False
+            self._space_release_captured = True
+            if not hasattr(self, '_space_timer'):
+                self._space_timer = QTimer(self)
+                self._space_timer.setSingleShot(True)
+                self._space_timer.timeout.connect(self._space_hold_timeout)
+            self._space_timer.start(self._SPACE_HOLD_MS)
+            return True
+        return False
+
+    def _handle_finish_space_release(self) -> bool:
+        if self._space_release_captured:
+            self._space_release_captured = False
+            if self._space_press_time is not None and not self._space_held and hasattr(self, '_space_timer'):
+                self._space_timer.stop()
+            self._space_press_time = None
+            self._space_held = False
+            return True
+        if self._space_press_time is not None and not self._space_held:
+            self._space_press_time = None
+            if hasattr(self, '_space_timer'):
+                self._space_timer.stop()
+            return True
+        return False
 
     def _space_hold_timeout(self):
         """Called when spacebar has been held long enough → activate Finish."""
         if self._space_press_time is not None:
             self._space_held = True
             self._space_press_time = None
-            self.motion_3.activate_finish()
+            self.finish_controller.activate(self.comboBox_patternSelect.currentData())
 
     # ------------------------------------------------------------------
     # Global hotkeys (pynput)
@@ -1134,13 +1217,13 @@ class Window(QMainWindow, Ui_MainWindow):
 
     def _on_global_long_press(self):
         """Global spacebar or middle-click held long enough → activate Finish."""
-        if self.motion_3.is_finish_armed() and self.motion_3.any_scripts_loaded():
-            self.motion_3.activate_finish()
+        if self.finish_controller.is_armed() and self._finish_has_scripts_loaded():
+            self.finish_controller.activate(self.comboBox_patternSelect.currentData())
 
     def _on_global_short_press(self):
         """Global spacebar or middle-click short tap → deactivate Finish."""
-        if self.motion_3.is_finish_active():
-            self.motion_3.deactivate_finish()
+        if self.finish_controller.is_active():
+            self.finish_controller.deactivate()
 
     # ------------------------------------------------------------------
     # Pattern / funscript interaction
@@ -1148,17 +1231,32 @@ class Window(QMainWindow, Ui_MainWindow):
 
     def _update_pattern_interaction_state(self):
         """Disable/enable pattern controls based on funscript state."""
-        has_scripts = self.motion_3.any_scripts_loaded()
+        has_scripts = self._finish_has_scripts_loaded()
         is_yaml = self._is_yaml_category_active()
 
-        # Pattern combobox: disabled when funscripts loaded AND not in finish mode
-        # (user can still arm finish via button)
-        if has_scripts and not self.motion_3.is_finish_active():
+        if not has_scripts and self.finish_controller.is_armed() and not self.finish_controller.is_active():
+            self.finish_controller.set_armed(False)
+            qt_ui.settings.patterns_finish_armed.set(False)
+            if hasattr(self, 'actionArmFinish'):
+                self.actionArmFinish.blockSignals(True)
+                self.actionArmFinish.setChecked(False)
+                self.actionArmFinish.blockSignals(False)
+                self.actionArmFinish.setText("Arm\nFinish")
+
+        # Pattern combobox: disabled when funscripts are loaded unless finish is armed.
+        # This lets the user preselect a finish pattern before triggering it.
+        if has_scripts and not self.finish_controller.is_armed():
             self.comboBox_patternSelect.setEnabled(False)
             self.doubleSpinBox.setEnabled(False)
         else:
             self.comboBox_patternSelect.setEnabled(True)
             self.doubleSpinBox.setEnabled(True)
+
+        if hasattr(self, 'actionArmFinish'):
+            self.actionArmFinish.setEnabled(has_scripts or self.finish_controller.is_active())
+
+    def _finish_has_scripts_loaded(self) -> bool:
+        return self.motion_3.any_scripts_loaded() or self.motion_4.any_scripts_loaded()
 
     def _connect_tcode_to_axis_controllers(self):
         """Connect TCode axis_updated signal to all AxisControllers across all settings widgets.
@@ -1286,6 +1384,7 @@ class Window(QMainWindow, Ui_MainWindow):
         if index == -1:
             index = 0  # mouse is always index 0
         self.comboBox_patternSelect.setCurrentIndex(index)
+        self._update_finish_pattern_note()
 
 
     def save_settings(self):

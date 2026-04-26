@@ -159,6 +159,35 @@ class ConstantAxis(AbstractAxis):
         return self.value
 
 
+class OverrideAxis(AbstractAxis):
+    def __init__(self, base_axis: AbstractAxis, override_axis: AbstractAxis, is_override_active):
+        self.base_axis = base_axis
+        self.override_axis = override_axis
+        self.is_override_active = is_override_active
+
+    def _current_axis(self):
+        if callable(self.is_override_active):
+            return self.override_axis if self.is_override_active() else self.base_axis
+        return self.override_axis if self.is_override_active else self.base_axis
+
+    def add(self, value, interval=0.0):
+        self._current_axis().add(value, interval)
+
+    def interpolate(self, timestamp):
+        return self._current_axis().interpolate(timestamp)
+
+    def last_value(self):
+        return self._current_axis().last_value()
+
+
+def is_script_axis(axis) -> bool:
+    if isinstance(axis, WriteProtectedAxis):
+        return True
+    if isinstance(axis, OverrideAxis):
+        return is_script_axis(axis.base_axis)
+    return False
+
+
 def create_temporal_axis(init_value, interpolation='linear'):
     if interpolation == 'linear':
         interpolator = LinearInterpolator()

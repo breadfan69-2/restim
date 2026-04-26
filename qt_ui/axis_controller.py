@@ -3,7 +3,7 @@ import time
 
 from PySide6 import QtCore, QtWidgets
 
-from stim_math.axis import AbstractAxis, WriteProtectedAxis
+from stim_math.axis import AbstractAxis, is_script_axis
 
 # Timeout in seconds: if no TCode update for this long, release control back to user
 TCODE_RELEASE_TIMEOUT = 2.0
@@ -49,7 +49,7 @@ class AxisController(QtCore.QObject):
         return self.control.value()
 
     def link_axis(self, axis):
-        if isinstance(axis, WriteProtectedAxis):    # HACK: is funcript axis?
+        if is_script_axis(axis):
             self.link_to_funscript(axis)
         else:
             self.link_to_internal_axis(axis)
@@ -147,7 +147,7 @@ class GroupboxAxisController(QtCore.QObject):
             self.modified_by_user.emit()
 
     def link_axis(self, axis):
-        if isinstance(axis, WriteProtectedAxis):    # HACK: is funcript axis?
+        if is_script_axis(axis):
             self.link_to_funscript(axis)
         else:
             self.link_to_internal_axis(axis)
