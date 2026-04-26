@@ -7,7 +7,7 @@ from PySide6.QtCore import QEvent, QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QSizePolicy, QFrame, QStyleFactory,
-    QGroupBox, QFormLayout, QDoubleSpinBox, QLabel, QVBoxLayout, QLCDNumber
+    QComboBox, QGroupBox, QFormLayout, QDoubleSpinBox, QLabel, QVBoxLayout, QLCDNumber
 )
 import logging
 
@@ -56,10 +56,26 @@ class PlayState(Enum):
     WAITING_ON_LOAD = 2  # the audio is stopped, but is ready to be auto-started once funscripts are loaded.
 
 
+class FinishPatternComboBox(QComboBox):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._popup_blocker = None
+
+    def set_popup_blocker(self, popup_blocker):
+        self._popup_blocker = popup_blocker
+
+    def showPopup(self):
+        if self._popup_blocker is not None and self._popup_blocker():
+            return
+        super().showPopup()
+
+
 class Window(QMainWindow, Ui_MainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setupUi(self)
+        self._replace_pattern_selector_combo()
+        self._pattern_popup_blocked = False
 
         self.playstate = PlayState.STOPPED
         self.tab_volume.set_play_state(self.playstate)
@@ -1093,6 +1109,35 @@ class Window(QMainWindow, Ui_MainWindow):
         self._update_finish_pattern_note()
         self._update_pattern_interaction_state()
 
+    def _replace_pattern_selector_combo(self):
+        old_combo = self.comboBox_patternSelect
+        parent = old_combo.parentWidget()
+        layout = parent.layout()
+        new_combo = FinishPatternComboBox(parent)
+        new_combo.setObjectName(old_combo.objectName())
+        new_combo.setSizePolicy(old_combo.sizePolicy())
+        new_combo.setMinimumSize(old_combo.minimumSize())
+        new_combo.setMaximumSize(old_combo.maximumSize())
+        new_combo.setBaseSize(old_combo.baseSize())
+        new_combo.setFocusPolicy(old_combo.focusPolicy())
+        new_combo.setToolTip(old_combo.toolTip())
+        new_combo.setStatusTip(old_combo.statusTip())
+        new_combo.setWhatsThis(old_combo.whatsThis())
+        new_combo.setEditable(old_combo.isEditable())
+        new_combo.setEnabled(old_combo.isEnabled())
+        new_combo.setInsertPolicy(old_combo.insertPolicy())
+        new_combo.setMaxVisibleItems(old_combo.maxVisibleItems())
+        new_combo.setSizeAdjustPolicy(old_combo.sizeAdjustPolicy())
+        new_combo.setIconSize(old_combo.iconSize())
+        new_combo.setStyleSheet(old_combo.styleSheet())
+        for index in range(old_combo.count()):
+            new_combo.addItem(old_combo.itemIcon(index), old_combo.itemText(index), old_combo.itemData(index))
+        new_combo.setCurrentIndex(old_combo.currentIndex())
+        new_combo.set_popup_blocker(lambda: self._pattern_popup_blocked)
+        layout.replaceWidget(old_combo, new_combo)
+        old_combo.deleteLater()
+        self.comboBox_patternSelect = new_combo
+
     def _on_finish_state_changed(self, active):
         """Update UI when finish mode activates/deactivates."""
         if active:
@@ -1184,12 +1229,19 @@ class Window(QMainWindow, Ui_MainWindow):
             self.finish_controller.is_armed() and self._finish_has_scripts_loaded()
         )
 
+    def _set_pattern_popup_blocked(self, blocked: bool):
+        self._pattern_popup_blocked = blocked
+
     def _suppress_pattern_popup(self):
+        self._set_pattern_popup_blocked(True)
+        if self.comboBox_patternSelect.hasFocus():
+            self.doubleSpinBox.setFocus()
         self.comboBox_patternSelect.hidePopup()
         QTimer.singleShot(0, self.comboBox_patternSelect.hidePopup)
 
     def _handle_finish_space_press(self) -> bool:
         if self.finish_controller.is_active():
+            self._set_pattern_popup_blocked(True)
             self.finish_controller.deactivate()
             self._space_press_time = None
             self._space_held = False
@@ -1197,6 +1249,7 @@ class Window(QMainWindow, Ui_MainWindow):
             return True
         if self.finish_controller.is_armed() and self._finish_has_scripts_loaded():
             import time as _time
+            self._set_pattern_popup_blocked(True)
             self._space_press_time = _time.time()
             self._space_held = False
             self._space_release_captured = True
@@ -1215,12 +1268,15 @@ class Window(QMainWindow, Ui_MainWindow):
                 self._space_timer.stop()
             self._space_press_time = None
             self._space_held = False
+            QTimer.singleShot(0, lambda: self._set_pattern_popup_blocked(False))
             return True
         if self._space_press_time is not None and not self._space_held:
             self._space_press_time = None
             if hasattr(self, '_space_timer'):
                 self._space_timer.stop()
+            QTimer.singleShot(0, lambda: self._set_pattern_popup_blocked(False))
             return True
+        self._set_pattern_popup_blocked(False)
         return False
 
     def _space_hold_timeout(self):

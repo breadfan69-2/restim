@@ -401,6 +401,8 @@ class ThreephaseMotionGenerator(QtCore.QObject):
             self._finish_ramp_out = True
             self.finish_state_changed.emit(False)
             logger.info("Finish deactivating (ramping out)")
+            return True
+        return False
 
     def is_finish_active(self) -> bool:
         return self._finish_active

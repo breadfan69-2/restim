@@ -41,11 +41,13 @@ class FinishController(QtCore.QObject):
             return False
 
         driver = self._active_driver
+        was_active = driver.is_finish_active()
         if not driver.is_finish_controlling_output():
             self._clear_inactive_driver()
             return False
 
-        changed = driver.deactivate_finish()
+        driver.deactivate_finish()
+        changed = was_active and not driver.is_finish_active()
         if changed:
             self.finish_state_changed.emit(False)
         elif not driver.is_finish_controlling_output():
