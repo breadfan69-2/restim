@@ -7,7 +7,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QSizePolicy, QFrame, QStyleFactory,
-    QGroupBox, QFormLayout, QDoubleSpinBox, QLabel, QVBoxLayout
+    QGroupBox, QFormLayout, QDoubleSpinBox, QLabel, QVBoxLayout, QLCDNumber
 )
 import logging
 
@@ -34,6 +34,7 @@ from qt_ui import resources
 from qt_ui.models.funscript_kit import FunscriptKitModel
 from device.focstim.proto_device import FOCStimProtoDevice, LSM6DSOX_SAMPLERATE_HZ
 from device.neostim.neostim_device import NeoStim
+from qt_ui.widgets.battery_progress_bar import BatteryProgressBar
 from qt_ui.widgets.icon_with_connection_status import IconWithConnectionStatus
 from stim_math.axis import create_temporal_axis
 
@@ -73,14 +74,25 @@ class Window(QMainWindow, Ui_MainWindow):
         # TODO: credit https://glyphs.fyi/ for icons
         spacer = QWidget()
         spacer.sizePolicy()
-        spacer.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self.toolBar.insertWidget(self.actionStart, spacer)
+
+        self.device_volume_display = QLCDNumber(self)
+        self.device_volume_display.setDigitCount(3)
+        self.device_volume_display.setSegmentStyle(QLCDNumber.SegmentStyle.Filled)
+        self.device_volume_display.setToolTip("Device volume\r\nAdjust with knob on device")
+        self.device_volume_display.setFixedSize(58, 30)
+        self.toolBar.insertWidget(self.actionStart, self.device_volume_display)
+
+        self.battery_bar = BatteryProgressBar(self)
+        self.toolBar.insertWidget(self.actionStart, self.battery_bar)
+
         line = QFrame()
-        # line->setObjectName(QString::fromUtf8("line"));
-        # line->setGeometry(QRect(320, 150, 118, 3));
-        line.setFrameShape(QFrame.HLine)
-        line.setFrameShadow(QFrame.Sunken)
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setFrameShadow(QFrame.Shadow.Sunken)
         self.toolBar.insertWidget(self.actionStart, line)
+
+        self.reset_focstim_status_widgets()
 
         self.doubleSpinBox_volume.setValue(qt_ui.settings.volume_default_level.get())
         self.tab_volume.link_volume_controls(self.doubleSpinBox_volume, self.progressBar_volume)
@@ -213,9 +225,11 @@ class Window(QMainWindow, Ui_MainWindow):
 
         self.websocket_server = net.websocketserver.WebSocketServer(self)
         self.websocket_server.new_tcode_command.connect(self.tcode_command_router.route_command)
+        self.websocket_server.all_clients_disconnected.connect(self._on_tcode_network_clients_disconnected)
 
         self.tcpudp_server = net.tcpudpserver.TcpUdpServer(self)
         self.tcpudp_server.new_tcode_command.connect(self.tcode_command_router.route_command)
+        self.tcpudp_server.all_clients_disconnected.connect(self._on_tcode_network_clients_disconnected)
 
         self.serial_proxy = net.serialproxy.SerialProxy(self)
         self.serial_proxy.new_tcode_command.connect(self.tcode_command_router.route_command)
@@ -551,6 +565,9 @@ class Window(QMainWindow, Ui_MainWindow):
 
         visible = {self.tab_threephase, self.tab_volume, self.tab_vibrate, self.tab_details}
 
+        all_widgets = {self.device_volume_display, self.battery_bar, self.foc_device_stats}
+        visible_widgets = set()
+
         config = DeviceConfiguration.from_settings()
 
         # determine tab visibility
@@ -564,15 +581,21 @@ class Window(QMainWindow, Ui_MainWindow):
         if config.device_type == DeviceType.FOCSTIM_THREE_PHASE:
             visible |= {self.tab_pulse_settings}
             visible -= {self.tab_vibrate}
+            visible_widgets |= {self.device_volume_display, self.battery_bar, self.foc_device_stats}
         if config.device_type == DeviceType.FOCSTIM_FOUR_PHASE:
             visible |= {self.tab_pulse_settings, self.tab_fourphase, self.tab_details_fourphase}
             visible -= {self.tab_vibrate, self.tab_threephase, self.tab_details}
+            visible_widgets |= {self.device_volume_display, self.battery_bar, self.foc_device_stats}
         if config.device_type == DeviceType.NEOSTIM_THREE_PHASE:
             visible |= {self.tab_neostim}
             visible -= {self.tab_vibrate, self.tab_details}
 
         for tab in all_tabs:
             set_visible(tab, tab in visible)
+
+        for widget in all_widgets:
+            widget.setVisible(widget in visible_widgets)
+            widget.setEnabled(widget in visible_widgets)
 
         # set safety limits
         self.tab_carrier.set_safety_limits(config.min_frequency, config.max_frequency)
@@ -612,6 +635,7 @@ class Window(QMainWindow, Ui_MainWindow):
             self.tab_threephase.phase_widget_calibration.set_background(foc=True)
 
         self.refresh_pattern_combobox()
+        self.reset_focstim_status_widgets()
 
     def pattern_selection_changed(self, index):
         pattern = self.comboBox_patternSelect.currentData()
@@ -690,6 +714,10 @@ class Window(QMainWindow, Ui_MainWindow):
                 output_device.new_pressure_sensor_data.connect(self.page_sensors.new_pressure_sensor_data)
                 output_device.new_currents_data.connect(self.tab_details_fourphase.update_currents)
                 output_device.new_model_estimation_data.connect(self.tab_details_fourphase.update_impedance)
+                output_device.new_battery_data.connect(self.battery_bar.setValue)
+                output_device.new_device_volume_data.connect(self.device_volume_display.display)
+                output_device.new_utilization_data.connect(self.foc_device_stats.update_utilization)
+                output_device.new_resistance_data.connect(self.foc_device_stats.update_resistance)
                 algorithm.sensor_node = self.page_sensors
 
 
@@ -709,9 +737,15 @@ class Window(QMainWindow, Ui_MainWindow):
         if self.output_device is not None:
             self.output_device.stop()
             self.output_device = None
+        self.reset_focstim_status_widgets()
         self.playstate = new_playstate
         self.tab_volume.set_play_state(self.playstate)
         self.refresh_play_button_icon()
+
+    def reset_focstim_status_widgets(self):
+        self.device_volume_display.display(0)
+        self.battery_bar.setValue(0)
+        self.foc_device_stats.reset_utilization()
 
     def autostart_timeout(self):
         print('autostart timeout')
@@ -1130,13 +1164,30 @@ class Window(QMainWindow, Ui_MainWindow):
         """Connect TCode axis_updated signal to all AxisControllers across all settings widgets.
         This makes spinboxes update in real-time during TCode control and revert on disconnect."""
         signal = self.tcode_command_router.axis_updated
+        self._tcode_axis_controllers = [
+            self.tab_pulse_settings.carrier_controller,
+            self.tab_pulse_settings.pulse_frequency_controller,
+            self.tab_pulse_settings.pulse_width_controller,
+            self.tab_pulse_settings.pulse_interval_random_controller,
+            self.tab_pulse_settings.pulse_rise_time_controller,
+            self.tab_carrier.carrier_controller,
+            self.tab_vibrate.vib1_enabled_controller,
+            self.tab_vibrate.vib1_freq_controller,
+            self.tab_vibrate.vib1_strength_controller,
+            self.tab_vibrate.vib1_left_right_bias_controller,
+            self.tab_vibrate.vib1_high_low_bias_controller,
+            self.tab_vibrate.vib1_random_controller,
+            self.tab_vibrate.vib2_enabled_controller,
+            self.tab_vibrate.vib2_freq_controller,
+            self.tab_vibrate.vib2_strength_controller,
+            self.tab_vibrate.vib2_left_right_bias_controller,
+            self.tab_vibrate.vib2_high_low_bias_controller,
+            self.tab_vibrate.vib2_random_controller,
+        ]
 
         # Pulse settings controllers
-        signal.connect(self.tab_pulse_settings.carrier_controller.on_tcode_axis_updated)
-        signal.connect(self.tab_pulse_settings.pulse_frequency_controller.on_tcode_axis_updated)
-        signal.connect(self.tab_pulse_settings.pulse_width_controller.on_tcode_axis_updated)
-        signal.connect(self.tab_pulse_settings.pulse_interval_random_controller.on_tcode_axis_updated)
-        signal.connect(self.tab_pulse_settings.pulse_rise_time_controller.on_tcode_axis_updated)
+        for controller in self._tcode_axis_controllers:
+            signal.connect(controller.on_tcode_axis_updated)
 
         # YAML pattern axis writes → same spinbox update mechanism
         pat_signal = self.motion_3.extra_axis_updated
@@ -1144,22 +1195,17 @@ class Window(QMainWindow, Ui_MainWindow):
         pat_signal.connect(self.tab_pulse_settings.pulse_frequency_controller.on_tcode_axis_updated)
         pat_signal.connect(self.tab_pulse_settings.pulse_width_controller.on_tcode_axis_updated)
 
-        # Carrier settings controller (continuous waveform mode)
-        signal.connect(self.tab_carrier.carrier_controller.on_tcode_axis_updated)
+    def _release_tcode_axis_controllers(self):
+        released = set()
+        for controller in getattr(self, '_tcode_axis_controllers', []):
+            if controller in released:
+                continue
+            controller.release_tcode_control()
+            released.add(controller)
 
-        # Vibration settings controllers
-        signal.connect(self.tab_vibrate.vib1_enabled_controller.on_tcode_axis_updated)
-        signal.connect(self.tab_vibrate.vib1_freq_controller.on_tcode_axis_updated)
-        signal.connect(self.tab_vibrate.vib1_strength_controller.on_tcode_axis_updated)
-        signal.connect(self.tab_vibrate.vib1_left_right_bias_controller.on_tcode_axis_updated)
-        signal.connect(self.tab_vibrate.vib1_high_low_bias_controller.on_tcode_axis_updated)
-        signal.connect(self.tab_vibrate.vib1_random_controller.on_tcode_axis_updated)
-        signal.connect(self.tab_vibrate.vib2_enabled_controller.on_tcode_axis_updated)
-        signal.connect(self.tab_vibrate.vib2_freq_controller.on_tcode_axis_updated)
-        signal.connect(self.tab_vibrate.vib2_strength_controller.on_tcode_axis_updated)
-        signal.connect(self.tab_vibrate.vib2_left_right_bias_controller.on_tcode_axis_updated)
-        signal.connect(self.tab_vibrate.vib2_high_low_bias_controller.on_tcode_axis_updated)
-        signal.connect(self.tab_vibrate.vib2_random_controller.on_tcode_axis_updated)
+    def _on_tcode_network_clients_disconnected(self):
+        logger.info('All websocket/TCP TCode clients disconnected, releasing TCode-controlled widgets.')
+        self._release_tcode_axis_controllers()
 
     def open_write_audio_dialog(self):
         device = DeviceConfiguration.from_settings()

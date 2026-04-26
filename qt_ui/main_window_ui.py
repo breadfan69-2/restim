@@ -33,6 +33,7 @@ from qt_ui.vibration_settings_widget import VibrationSettingsWidget
 from qt_ui.volume_control_widget import VolumeControlWidget
 from qt_ui.waveform_details_widget import WaveformDetailsWidget
 from qt_ui.fourphase_details_widget import FourPhaseDetailsWidget
+from qt_ui.widgets.focstim_device_stats_widget import FocStimDeviceStatsWidget
 from qt_ui.widgets.fourphase_widget_individual_electrodes import FourphaseWidgetIndividualElectrodes
 from qt_ui.widgets.threephase_widget import ThreephaseWidgetAlphaBeta
 from qt_ui.widgets.volume_widget import VolumeWidget
@@ -195,6 +196,11 @@ class Ui_MainWindow(object):
 
 
         self.verticalLayout.addWidget(self.groupBox_pattern)
+
+        self.foc_device_stats = FocStimDeviceStatsWidget(self.left_frame)
+        self.foc_device_stats.setObjectName(u"foc_device_stats")
+
+        self.verticalLayout.addWidget(self.foc_device_stats)
 
         self.verticalSpacer = QSpacerItem(20, 40, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
 
