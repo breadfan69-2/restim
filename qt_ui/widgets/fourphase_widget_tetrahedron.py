@@ -2,7 +2,7 @@
 3D wireframe tetrahedron visualization for 4-phase electrode display.
 
 Shows the regular tetrahedron whose 4 vertices correspond to the 4 electrodes
-(A, B, C, D). A cursor dot indicates the current position in abc space.
+(A, B, C, D). A cursor dot indicates the current constrained output position.
 
 Auto-rotates slowly; drag with the mouse to rotate manually.
 Double-click toggles auto-rotation on/off.
@@ -12,6 +12,7 @@ import numpy as np
 from PySide6.QtWidgets import QWidget
 from PySide6.QtCore import QTimer, Qt, QPointF, Signal
 from PySide6.QtGui import QPainter, QPen, QColor, QFont, QPolygonF, QMouseEvent
+from qt_ui.widgets.fourphase_display_state import canonicalize_4p_display
 
 # e1234_to_abc is designed for sequences and has sign ambiguity with single
 # samples, so we use barycentric interpolation on the tetrahedron vertices.
@@ -77,13 +78,14 @@ class FourphaseWidgetTetrahedron(QWidget):
     # ------------------------------------------------------------------
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.sensor_widget = None
 
         # rotation state
         self._yaw   =  0.4
         self._pitch = -0.3
 
         # auto-rotation
-        self._auto_rotate       = True
+        self._auto_rotate       = False
         self._auto_rotate_speed = 0.008          # rad / frame
 
         # mouse drag
@@ -111,25 +113,35 @@ class FourphaseWidgetTetrahedron(QWidget):
     #  public API
     # ------------------------------------------------------------------
 
+    def set_sensor_widget(self, sensor_widget):
+        self.sensor_widget = sensor_widget
+
+    def _update_cursor_alpha(self):
+        if self._cursor_abc is None:
+            self._cursor_alpha = 0.0
+            return
+
+        strength = float(np.clip(np.linalg.norm(self._cursor_abc), 0, 1))
+        self._cursor_alpha = 0.35 + 0.65 * strength
+
     def set_electrode_intensities(self, a, b, c, d):
         """Convert electrode intensities (a,b,c,d) → abc and update cursor.
 
         Uses barycentric interpolation: the position is the weighted average
         of the tetrahedron vertices, which always lands inside the shape.
         """
+        a, b, c, d = canonicalize_4p_display(a, b, c, d, self.sensor_widget)
         total = a + b + c + d
         if total > 0:
             self._cursor_abc = (a * VERTICES[0] + b * VERTICES[1]
                                 + c * VERTICES[2] + d * VERTICES[3]) / total
         else:
             self._cursor_abc = np.zeros(3)
-        self._cursor_alpha = float(np.clip(np.linalg.norm(self._cursor_abc),
-                                           0, 1))
+        self._update_cursor_alpha()
 
     def set_cursor_position_abc(self, a, b, c):
         self._cursor_abc   = np.array([a, b, c])
-        self._cursor_alpha = float(np.clip(np.linalg.norm(self._cursor_abc),
-                                           0, 1))
+        self._update_cursor_alpha()
 
     # ------------------------------------------------------------------
     #  timers

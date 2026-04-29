@@ -9,6 +9,7 @@ from PySide6.QtGui import QColor, QTransform, QPen, Qt, QPainter, QFont, QMouseE
 import numpy as np
 
 from stim_math.transforms_4 import constrain_4p_amplitudes
+from qt_ui.widgets.fourphase_display_state import canonicalize_4p_display
 
 COLOR_LINE = QColor.fromRgb(50, 50, 50)
 LINE_WIDTH = .08
@@ -37,6 +38,8 @@ class FourphaseWidgetIndividualElectrodes(QGraphicsView):
     def __init__(self, parent):
         super().__init__(parent)
         self.sensor_widget = None
+        self.last_intensity = (1.0, 1.0, 1.0, 1.0)
+        self._drag_column = None
 
         self.setScene(QGraphicsScene())
 
@@ -60,15 +63,8 @@ class FourphaseWidgetIndividualElectrodes(QGraphicsView):
         self.sensor_widget = sensor_widget
 
     def set_electrode_intensities(self, a, b, c, d):
-        if self.sensor_widget:
-            params = {'e1': a, 'e2': b, 'e3': c, 'e4': d}
-            self.sensor_widget.process(params)
-            a = params['e1']
-            b = params['e2']
-            c = params['e3']
-            d = params['e4']
-
-        a, b, c, d = constrain_4p_amplitudes(a, b, c, d)
+        self.last_intensity = (a, b, c, d)
+        a, b, c, d = canonicalize_4p_display(a, b, c, d, self.sensor_widget)
         self._last_a = a
         self._last_b = b
         self._last_c = c
@@ -133,10 +129,21 @@ class FourphaseWidgetIndividualElectrodes(QGraphicsView):
         self.scale(scale, scale)
 
     def mousePressEvent(self, event: QMouseEvent):
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+
+        point = self.mapToScene(event.position().toPoint())
+        x, y = point.x(), point.y()
+        if not (0 <= x < 4 and 0 <= y <= 1):
+            return
+
+        self._drag_column = int(np.clip(x, 0, 3.999))
+        self.refresh_boxes()
         self.mouse_event_any(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent):
-        self.mouse_event_any(event)
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_column = None
 
     def mouseMoveEvent(self, event: QMouseEvent):
         # Show vertical drag cursor when over a bar
@@ -154,17 +161,26 @@ class FourphaseWidgetIndividualElectrodes(QGraphicsView):
         if not (event.buttons() & Qt.MouseButton.LeftButton):
             return
 
+        if self._drag_column is None:
+            return
+
         point = self.mapToScene(event.position().toPoint())
-        x, y = point.x(), point.y()
+        intensity = float(np.clip(1.0 - point.y(), 0, 1))
 
-        # Scene is 4 wide (columns 0-3), 1 tall.
-        # X selects which electrode, Y sets its intensity.
-        col = int(np.clip(x, 0, 3.999))  # 0=A, 1=B, 2=C, 3=D
-        intensity = float(np.clip(1.0 - y, 0, 1))  # y=0 is top (1.0), y=1 is bottom (0.0)
+        if self._drag_column == 0:
+            self.mouse_update_e1.emit(intensity)
+        elif self._drag_column == 1:
+            self.mouse_update_e2.emit(intensity)
+        elif self._drag_column == 2:
+            self.mouse_update_e3.emit(intensity)
+        elif self._drag_column == 3:
+            self.mouse_update_e4.emit(intensity)
 
-        values = [self._last_a, self._last_b, self._last_c, self._last_d]
-        values[col] = intensity
+    def refresh_boxes(self):
+        self.mouse_update_all.emit(*constrain_4p_amplitudes(*self.last_intensity))
 
-        self.mousePositionChanged.emit(*values)
-
-    mousePositionChanged = QtCore.Signal(float, float, float, float)  # a, b, c, d
+    mouse_update_e1 = QtCore.Signal(float)
+    mouse_update_e2 = QtCore.Signal(float)
+    mouse_update_e3 = QtCore.Signal(float)
+    mouse_update_e4 = QtCore.Signal(float)
+    mouse_update_all = QtCore.Signal(float, float, float, float)

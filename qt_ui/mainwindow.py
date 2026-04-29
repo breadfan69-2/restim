@@ -214,10 +214,15 @@ class Window(QMainWindow, Ui_MainWindow):
         self.finish_controller = FinishController(self)
         self.finish_controller.register_driver(self.motion_3)
         self.finish_controller.register_driver(self.motion_4)
-        self.graphicsView_fourphase.mousePositionChanged.connect(self.motion_4.mouse_event)
+        self.graphicsView_fourphase.mouse_update_all.connect(self.motion_4.mouse_event)
+        self.graphicsView_fourphase.mouse_update_e1.connect(self.motion_4.mouse_event_e1)
+        self.graphicsView_fourphase.mouse_update_e2.connect(self.motion_4.mouse_event_e2)
+        self.graphicsView_fourphase.mouse_update_e3.connect(self.motion_4.mouse_event_e3)
+        self.graphicsView_fourphase.mouse_update_e4.connect(self.motion_4.mouse_event_e4)
         self.motion_4.position_updated.connect(self.graphicsView_fourphase.set_electrode_intensities)
         self.motion_4.position_updated.connect(self.graphicsView_fourphase_3d.set_electrode_intensities)
         self.graphicsView_fourphase.set_sensor_widget(self.page_sensors)
+        self.graphicsView_fourphase_3d.set_sensor_widget(self.page_sensors)
 
         # 3-phase details tab
         self.tab_details.set_axis(

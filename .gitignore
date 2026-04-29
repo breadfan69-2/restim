@@ -153,3 +153,5 @@ firmware_esp32/firmware.bin
 firmware_esp32/focstim_v4_firmware.bin
 firmware_esp32/partitions.bin
 qt_ui/focstim_flash_dialog.py
+.vscode/tasks.json
+FOURPHASE_VISUALIZER_REVIEW_2026-04-27.md
