@@ -10,6 +10,13 @@ from device.focstim.constants_pb2 import AxisType
 from stim_math import limits
 
 
+AXIS_CALIBRATION_4_REDUCTION_IN_CENTER = getattr(
+    AxisType,
+    'AXIS_CALIBRATION_4_REDUCTION_IN_CENTER',
+    45,
+)
+
+
 class FOCStimFourphaseAlgorithm(RemoteGenerationAlgorithm):
     def __init__(self, media: AbstractMediaSync, params: FourphaseFOCStimParams, safety_limits: SafetyParamsFOC):
         super().__init__()
@@ -80,11 +87,11 @@ class FOCStimFourphaseAlgorithm(RemoteGenerationAlgorithm):
             AxisType.AXIS_PULSE_WIDTH_IN_CYCLES: self.params.pulse_width.interpolate(t),
             AxisType.AXIS_PULSE_RISE_TIME_CYCLES: self.params.pulse_rise_time.interpolate(t),
             AxisType.AXIS_PULSE_INTERVAL_RANDOM_PERCENT: self.params.pulse_interval_random.interpolate(t),
-            AxisType.AXIS_CALIBRATION_4_CENTER: self.params.calibrate.center.interpolate(t),
             AxisType.AXIS_CALIBRATION_4_A: self.params.calibrate.a.interpolate(t),
             AxisType.AXIS_CALIBRATION_4_B: self.params.calibrate.b.interpolate(t),
             AxisType.AXIS_CALIBRATION_4_C: self.params.calibrate.c.interpolate(t),
             AxisType.AXIS_CALIBRATION_4_D: self.params.calibrate.d.interpolate(t),
+            AXIS_CALIBRATION_4_REDUCTION_IN_CENTER: self.params.calibrate.center_reduction.interpolate(t),
         }
 
     def frequency_derating_factor(self, max_frequency, frequency, tau):
