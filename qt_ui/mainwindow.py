@@ -1446,6 +1446,7 @@ class Window(QMainWindow, Ui_MainWindow):
     def _on_tcode_network_clients_disconnected(self):
         logger.info('All websocket/TCP TCode clients disconnected, releasing TCode-controlled widgets.')
         self._release_tcode_axis_controllers()
+        self.tab_volume.release_tcode_control()
 
     def open_write_audio_dialog(self):
         device = DeviceConfiguration.from_settings()

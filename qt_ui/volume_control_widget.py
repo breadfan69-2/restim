@@ -197,6 +197,11 @@ class VolumeControlWidget(QtWidgets.QWidget, Ui_VolumeControlForm):
     def refresh_master_volume(self, _=None):
         self.axis_master_volume.add(np.clip(self.doubleSpinBox_volume.value() / 100, 0.0, 1.0))
 
+    def release_tcode_control(self):
+        # TCode volume axes are multiplicative overrides; neutral is 1.0.
+        self.axis_api_volume.add(1.0)
+        self.axis_external_volume.add(1.0)
+
     def refresh_message(self, _=None):
         try:
             target = self.doubleSpinBox_ramp_target.value()
