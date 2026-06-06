@@ -2,6 +2,7 @@ import serial
 import time
 
 from pathlib import Path
+from intelhex import IntelHex
 
 import stm32loader.bootloader
 from PySide6.QtSerialPort import QSerialPortInfo
@@ -32,11 +33,17 @@ class FlashingThread(QThread):
             self.report_message.emit("ERROR: could not open firmware binary")
             return
 
-        firmware_binary = path.read_bytes()
-        self.report_message.emit(f"firmware size: {len(firmware_binary)} bytes")
+        hexfile = IntelHex(str(path))
+        hexfile.padding = 0x00
 
-        if len(firmware_binary) / 1024 > 128:  # flash is 128k + 128k, only single-page firmware supported at this time
-            self.report_message.emit("ERROR: firmware too large")
+        for segment_start, segment_end in hexfile.segments(min_gap=128):
+            page1_bound = (0x0800_0000, 0x0802_0000)
+            page2_bound = (0x0804_0000, 0x0806_0000)
+            in_page1 = (page1_bound[0] <= segment_start <= page1_bound[1]) and (page1_bound[0] <= segment_end <= page1_bound[1])
+            in_page2 = (page2_bound[0] <= segment_start <= page2_bound[1]) and (page2_bound[0] <= segment_end <= page2_bound[1])
+            if not (in_page1 or in_page2):
+                self.report_message.emit(f'firmware binary contains invalid address range 0x{segment_start:08x}-0x{segment_end:08x}')
+                return
 
         com_port_path = QSerialPortInfo(self.com_port).systemLocation()
         self.report_message.emit(f'opening {com_port_path}')
@@ -60,59 +67,67 @@ class FlashingThread(QThread):
         serial_connection.setRTS(False)
         serial_connection.setDTR(False)
 
-        with serial_connection:
-            stm32 = stm32loader.bootloader.Stm32Bootloader(
-                serial_connection,
-                verbosity=10,
-                show_progress=False,
-                device_family=None,
-            )
+        try:
+            with serial_connection:
+                stm32 = stm32loader.bootloader.Stm32Bootloader(
+                    serial_connection,
+                    verbosity=10,
+                    show_progress=False,
+                    device_family=None,
+                )
 
-            bootloader_active = self.poke_bootloader(serial_connection, stm32)
-
-            if not bootloader_active:
-                self.report_message.emit('Sending command to enter bootloader')
-                self.enter_bootloader(serial_connection)
-                time.sleep(0.05)
                 bootloader_active = self.poke_bootloader(serial_connection, stm32)
 
-            if not bootloader_active:
-                self.report_message.emit('ERROR: Bootloader not active, giving up.')
-                return
+                if not bootloader_active:
+                    self.report_message.emit('Sending command to enter bootloader')
+                    self.enter_bootloader(serial_connection)
+                    time.sleep(0.05)
+                    bootloader_active = self.poke_bootloader(serial_connection, stm32)
 
-            self.report_message.emit('Bootloader activated!')
+                if not bootloader_active:
+                    self.report_message.emit('ERROR: Bootloader not active, giving up.')
+                    return
 
-            stm32.detect_device()
-            flash_size = stm32.get_flash_size()
-            self.report_message.emit(f'device: {stm32.device}')
-            self.report_message.emit(f'flash size: {flash_size}Kb')
+                self.report_message.emit('Bootloader activated!')
 
-            if stm32.device.product_id != 0x469:
-                self.report_message.emit(f'ERROR: Unsupported CPU. Not a FOC-Stim v4 board?')
-                return
+                stm32.detect_device()
+                flash_size = stm32.get_flash_size()
+                self.report_message.emit(f'device: {stm32.device}')
+                self.report_message.emit(f'flash size: {flash_size}Kb')
 
-            if flash_size != 256:
-                self.report_message.emit(f'ERROR: Unsupported memory amount. Not a FOC-Stim v4 board?')
-                return
+                if stm32.device.product_id != 0x469:
+                    self.report_message.emit(f'ERROR: Unsupported CPU. Not a FOC-Stim v4 board?')
+                    return
 
-            self.report_message.emit('Erasing flash...')
-            stm32.extended_erase_memory()
-            page1 = firmware_binary[:0x20000]  # 128k
-            self.report_message.emit('writing firmware...')
-            stm32.write_memory_data(0x0800_0000, page1)
-            self.report_message.emit('verifying...')
-            page1_readback = stm32.read_memory_data(0x0800_0000, len(page1))
-            try:
-                stm32.verify_data(page1_readback, page1)
-            except stm32loader.bootloader.DataMismatchError as e:
-                self.report_message.emit("Verify failed, please retry")
-                self.report_message.emit(e)
-                return
+                if flash_size != 256:
+                    self.report_message.emit(f'ERROR: Unsupported memory amount. Not a FOC-Stim v4 board?')
+                    return
 
-            self.report_message.emit('verified!')
-            self.report_message.emit('starting program')
-            stm32.go(0x08000000)
+                self.report_message.emit('Erasing flash...')
+                stm32.extended_erase_memory()
 
+                for segment_start, segment_end in hexfile.segments(min_gap=128):
+                    data = hexfile.tobinarray(segment_start, segment_end - 1)
+                    self.report_message.emit(f'writing {len(data):d} bytes to 0x{segment_start:08x}')
+                    stm32.write_memory_data(segment_start, data)
+
+                for segment_start, segment_end in hexfile.segments(min_gap=128):
+                    self.report_message.emit(f'verify data at 0x{segment_start:08x}...')
+                    try:
+                        data = hexfile.tobinarray(segment_start, segment_end - 1)
+                        readback = stm32.read_memory_data(segment_start, segment_end - segment_start)
+                        stm32.verify_data(readback, data)
+                    except stm32loader.bootloader.DataMismatchError as e:
+                        self.report_message.emit("Verify failed, please retry")
+                        self.report_message.emit(str(e))
+                        return
+
+                self.report_message.emit('verified!')
+                self.report_message.emit('starting program')
+                stm32.go(0x08000000)
+        except stm32loader.bootloader.CommandError as e:
+            self.report_message.emit(str(e))
+            return
 
     def poke_bootloader(self, transport, stm32):
         self.report_message.emit("trying to talk with bootloader...")
@@ -196,7 +211,7 @@ class FocStimFlashDialog(QDialog, Ui_FocStimFlashDialog):
         dialog = FileDialog(self)
         dialog.setWindowTitle('Select FOC-Stim v4 firmware')
         dialog.setFileMode(QFileDialog.ExistingFile)
-        dialog.setNameFilters(["*.bin"])
+        dialog.setNameFilters(["*.hex"])
         ret = dialog.exec()
 
         if ret:

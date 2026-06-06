@@ -84,7 +84,7 @@ class TcpUdpServer(QtCore.QObject):
                     pass
 
     def clientDisconnected(self):
-        self.tcp_connections = [con for con in self.tcp_connections if con.state() != QtNetwork.QAbstractSocket.UnconnectedState]
+        self.tcp_connections = [con for con in self.tcp_connections if con.state() != QtNetwork.QAbstractSocket.SocketState.UnconnectedState]
         if len(self.tcp_connections) == 0:
             self.all_clients_disconnected.emit()
 

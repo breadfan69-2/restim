@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 from enum import Enum
@@ -5,6 +6,7 @@ from enum import Enum
 from PySide6 import QtGui
 from PySide6.QtCore import QEvent, QTimer
 from PySide6.QtGui import QIcon
+from PySide6.QtHttpServer import QHttpServerRequest
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QSizePolicy, QFrame, QStyleFactory,
     QComboBox, QGroupBox, QFormLayout, QDoubleSpinBox, QLabel, QVBoxLayout, QLCDNumber
@@ -21,6 +23,7 @@ from qt_ui.patterns.finish_controller import FinishController
 from device.audio.audio_stim_device import AudioStimDevice
 import net.websocketserver
 import net.tcpudpserver
+import net.http_server
 import qt_ui.funscript_conversion_dialog
 import qt_ui.simfile_conversion_dialog
 import qt_ui.focstim_flash_dialog
@@ -99,9 +102,12 @@ class Window(QMainWindow, Ui_MainWindow):
         self.device_volume_display.setSegmentStyle(QLCDNumber.SegmentStyle.Filled)
         self.device_volume_display.setToolTip("Device volume\r\nAdjust with knob on device")
         self.device_volume_display.setFixedSize(58, 30)
+        self.device_volume_display.display(0)
+        self.last_device_volume = None
         self.toolBar.insertWidget(self.actionStart, self.device_volume_display)
 
         self.battery_bar = BatteryProgressBar(self)
+        self.battery_bar.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.toolBar.insertWidget(self.actionStart, self.battery_bar)
 
         line = QFrame()
@@ -194,6 +200,7 @@ class Window(QMainWindow, Ui_MainWindow):
         self.graphicsView_threephase.set_transform_params(self.tab_threephase.transform_params)
         self.graphicsView_threephase.mousePositionChanged.connect(self.motion_3.mouse_event)
         self.motion_3.position_updated.connect(self.graphicsView_threephase.set_cursor_position_ab)
+        self.motion_3.path_updated.connect(self.graphicsView_threephase.set_path)
         self.graphicsView_threephase.set_sensor_widget(self.page_sensors)
 
         # fourphase view: 3D tetrahedron (display-only) + bar chart (interactive)
@@ -254,6 +261,14 @@ class Window(QMainWindow, Ui_MainWindow):
         self.websocket_server = net.websocketserver.WebSocketServer(self)
         self.websocket_server.new_tcode_command.connect(self.tcode_command_router.route_command)
         self.websocket_server.all_clients_disconnected.connect(self._on_tcode_network_clients_disconnected)
+        self.websocket_server.incoming_as5311_data.connect(self.page_sensors.new_as5311_sensor_data_from_network)
+        self.websocket_server.incoming_imu_data.connect(self.page_sensors.new_imu_sensor_data_from_network)
+        self.websocket_server.incoming_pressure_data.connect(self.page_sensors.new_pressure_sensor_data_from_network)
+
+        self.http_server = net.http_server.HttpServer(self)
+        self.http_server.route('/v1/status', self.api_status)
+        self.http_server.add_action('start', self.api_start)
+        self.http_server.add_action('stop', self.api_stop)
 
         self.tcpudp_server = net.tcpudpserver.TcpUdpServer(self)
         self.tcpudp_server.new_tcode_command.connect(self.tcode_command_router.route_command)
@@ -481,6 +496,10 @@ class Window(QMainWindow, Ui_MainWindow):
         # self.actionDevice.triggered.connect(show_device)
         # self.actionLog.triggered.connect(show_log)
         self.actionStart.triggered.connect(self.signal_start_stop)
+
+    def update_device_volume(self, value):
+        self.last_device_volume = value
+        self.device_volume_display.display(int(round(value * 100)))
 
     def media_connection_status_changed(self, status: MediaConnectionState):
         """
@@ -744,17 +763,22 @@ class Window(QMainWindow, Ui_MainWindow):
                 self.playstate = PlayState.PLAYING
                 self.tab_volume.set_play_state(self.playstate)
                 self.refresh_play_button_icon()
+                output_device.disconnected.connect(self.signal_stop)
 
-                output_device.new_as5311_sensor_data.connect(self.page_sensors.new_as5311_sensor_data)
-                output_device.new_imu_sensor_data.connect(self.page_sensors.new_imu_sensor_data)
-                output_device.new_pressure_sensor_data.connect(self.page_sensors.new_pressure_sensor_data)
+                output_device.new_as5311_sensor_data.connect(self.page_sensors.new_as5311_sensor_data_from_device)
+                output_device.new_imu_sensor_data.connect(self.page_sensors.new_imu_sensor_data_from_device)
+                output_device.new_pressure_sensor_data.connect(self.page_sensors.new_pressure_sensor_data_from_device)
                 output_device.new_currents_data.connect(self.tab_details_fourphase.update_currents)
                 output_device.new_model_estimation_data.connect(self.tab_details_fourphase.update_impedance)
                 output_device.new_battery_data.connect(self.battery_bar.setValue)
-                output_device.new_device_volume_data.connect(self.device_volume_display.display)
+                output_device.new_device_volume_data.connect(self.update_device_volume)
                 output_device.new_utilization_data.connect(self.foc_device_stats.update_utilization)
                 output_device.new_resistance_data.connect(self.foc_device_stats.update_resistance)
                 algorithm.sensor_node = self.page_sensors
+
+                output_device.new_as5311_sensor_data.connect(self.websocket_server.transmit_as5311_data)
+                output_device.new_imu_sensor_data.connect(self.websocket_server.transmit_imu_data)
+                output_device.new_pressure_sensor_data.connect(self.websocket_server.transmit_pressure_data)
 
 
         elif device.device_type == DeviceType.NEOSTIM_THREE_PHASE:
@@ -779,6 +803,7 @@ class Window(QMainWindow, Ui_MainWindow):
         self.refresh_play_button_icon()
 
     def reset_focstim_status_widgets(self):
+        self.last_device_volume = None
         self.device_volume_display.display(0)
         self.battery_bar.setValue(0)
         self.foc_device_stats.reset_utilization()
@@ -860,6 +885,26 @@ class Window(QMainWindow, Ui_MainWindow):
     def open_about_dialog(self):
         self.signal_stop(PlayState.STOPPED)
         self.about_dialog.exec()
+
+    def api_status(self, request: QHttpServerRequest):
+        params = {
+            "playing": self.playstate == PlayState.PLAYING,
+            "volume": {
+                "ui": self.doubleSpinBox_volume.value() / 100,
+            },
+        }
+        if self.last_device_volume is not None:
+            params["volume"]["device"] = self.last_device_volume
+        return json.dumps(params)
+
+    def api_start(self, request: QHttpServerRequest):
+        if self.output_device is None:
+            self.signal_start()
+        return "{}"
+
+    def api_stop(self, request: QHttpServerRequest):
+        self.signal_stop()
+        return "{}"
 
     def _toggle_dark_mode(self, checked):
         qt_ui.settings.dark_mode.set(checked)

@@ -2,6 +2,7 @@ import functools
 import logging
 
 import google.protobuf.text_format
+from PySide6.QtGui import QCursor
 from PySide6.QtSerialPort import QSerialPortInfo
 from PySide6.QtWidgets import QDialog, QAbstractButton, QDialogButtonBox, QAbstractItemView, QHeaderView, QComboBox, QTableWidgetItem, QCheckBox, QApplication
 from PySide6.QtCore import Qt, Signal, QTimer
@@ -30,6 +31,19 @@ class PreferencesDialog(QDialog, Ui_PreferencesDialog):
         self._cache_patterns_data()
 
         self.loadSettings()
+
+        # websocket url
+        self.label_websocket_url.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.label_websocket_url.setCursor(QCursor(Qt.CursorShape.IBeamCursor))
+        self.websocket_port.valueChanged.connect(self.refresh_websocket_url)
+        self.refresh_websocket_url()
+
+        # rest api url
+        self.label_rest_url.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.label_rest_url.setCursor(QCursor(Qt.CursorShape.IBeamCursor))
+        self.rest_port.valueChanged.connect(self.refresh_rest_url)
+        self.refresh_rest_url()
+
 
         self.audio_api.currentIndexChanged.connect(self.repopulate_audio_devices)
         self.audio_output_device.currentIndexChanged.connect(self.refresh_audio_device_info)
@@ -98,6 +112,12 @@ class PreferencesDialog(QDialog, Ui_PreferencesDialog):
         if role == QDialogButtonBox.RejectRole:
             self.reject()
 
+    def refresh_websocket_url(self):
+        self.label_websocket_url.setText(f"ws://localhost:{self.websocket_port.value()}/tcode")
+
+    def refresh_rest_url(self):
+        self.label_rest_url.setText(f"http://localhost:{self.rest_port.value()}")
+
     def loadSettings(self):
         # network settings
         self.gb_websocket_server.setChecked(qt_ui.settings.websocket_enabled.get())
@@ -119,6 +139,10 @@ class PreferencesDialog(QDialog, Ui_PreferencesDialog):
         self.gb_buttplug_wsdm.setChecked(qt_ui.settings.buttplug_wsdm_enabled.get())
         self.buttplug_wsdm_address.setText(qt_ui.settings.buttplug_wsdm_address.get())
         self.buttplug_wsdm_auto_expand.setChecked(qt_ui.settings.buttplug_wsdm_auto_expand.get())
+
+        self.gb_rest.setChecked(qt_ui.settings.rest_enabled.get())
+        self.rest_port.setValue(qt_ui.settings.rest_port.get())
+        self.rest_localhost_only.setChecked(qt_ui.settings.rest_localhost_only.get())
 
         # audio settings
         hostapi_name = qt_ui.settings.audio_api.get()
@@ -293,6 +317,11 @@ class PreferencesDialog(QDialog, Ui_PreferencesDialog):
         qt_ui.settings.buttplug_wsdm_enabled.set(self.gb_buttplug_wsdm.isChecked())
         qt_ui.settings.buttplug_wsdm_address.set(self.buttplug_wsdm_address.text())
         qt_ui.settings.buttplug_wsdm_auto_expand.set(self.buttplug_wsdm_auto_expand.isChecked())
+
+        qt_ui.settings.rest_enabled.set(self.gb_rest.isChecked())
+        qt_ui.settings.rest_port.set(self.rest_port.value())
+        qt_ui.settings.rest_localhost_only.set(self.rest_localhost_only.isChecked())
+
 
         # audio devices
         qt_ui.settings.audio_api.set(self.audio_api.currentText())

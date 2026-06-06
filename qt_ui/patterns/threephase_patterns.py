@@ -138,6 +138,8 @@ class ThreephaseMotionGenerator(QtCore.QObject):
             self.pattern = self.mouse_pattern
         elif pattern in self.patterns:
             self.pattern = pattern
+            self.mouse_pattern.clear_path()
+            self.path_updated.emit(self.mouse_pattern.path())
         else:
             # Unknown pattern (e.g. 4-phase native) — fall back to mouse
             self.pattern = self.mouse_pattern
@@ -221,12 +223,21 @@ class ThreephaseMotionGenerator(QtCore.QObject):
 
             if isinstance(active_pattern, MousePattern):
                 if self._write_position:
-                    if active_pattern.last_position_is_mouse_position():
-                        a = self.alpha.last_value()
-                        b = self.beta.last_value()
+                    if active_pattern.has_pattern():
+                        a, b = active_pattern.update(dt * self.velocity)
+                        self.alpha.add(a)
+                        self.beta.add(b)
+                        self._bridge_alpha_beta_to_fourphase()
+                        if not active_pattern.is_drawing:
+                            a = self.alpha.interpolate(time.time() - self.latency)
+                            b = self.beta.interpolate(time.time() - self.latency)
                     else:
-                        a = self.alpha.interpolate(time.time() - self.latency)
-                        b = self.beta.interpolate(time.time() - self.latency)
+                        if active_pattern.has_tcode_updates():
+                            a = self.alpha.interpolate(time.time() - self.latency)
+                            b = self.beta.interpolate(time.time() - self.latency)
+                        else:
+                            a = self.alpha.last_value()
+                            b = self.beta.last_value()
                     self.position_updated.emit(a, b)
             else:
                 edt = _effective_dt(active_pattern)
@@ -291,13 +302,15 @@ class ThreephaseMotionGenerator(QtCore.QObject):
                     b = self.beta.interpolate(time.time() - self.latency)
                 self.position_updated.emit(a, b)
 
-    def mouse_event(self, a, b):
+    def mouse_event(self, a, b, buttons: QtCore.Qt.MouseButtons, modifiers: QtCore.Qt.KeyboardModifier):
         if self.pattern == self.mouse_pattern and not self.any_scripts_loaded():
-            self.mouse_pattern.mouse_event(a, b)
-            self.alpha.add(a)
-            self.beta.add(b)
-            self._bridge_alpha_beta_to_fourphase()
-            self.position_updated.emit(a, b)
+            dirty = self.mouse_pattern.mouse_event(a, b, buttons, modifiers)
+            if dirty:
+                self.alpha.add(a)
+                self.beta.add(b)
+                self._bridge_alpha_beta_to_fourphase()
+                self.position_updated.emit(a, b)
+                self.path_updated.emit(self.mouse_pattern.path())
 
     def refreshSettings(self):
         self.timer.setInterval(int(1000 // np.clip(qt_ui.settings.display_fps.get(), 1.0, 500.0)))
@@ -512,3 +525,4 @@ class ThreephaseMotionGenerator(QtCore.QObject):
     position_updated = QtCore.Signal(float, float)  # a, b
     finish_state_changed = QtCore.Signal(bool)  # active/inactive
     extra_axis_updated = QtCore.Signal(object)  # emitted when YAML pattern writes to an extra axis
+    path_updated = QtCore.Signal(list)

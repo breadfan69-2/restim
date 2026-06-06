@@ -3,7 +3,7 @@
 ################################################################################
 ## Form generated from reading UI file 'mainwindow.ui'
 ##
-## Created by: Qt User Interface Compiler version 6.9.0
+## Created by: Qt User Interface Compiler version 6.10.2
 ##
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QDoubleSpinBox, QFrame,
 from qt_ui.ab_test_widget import ABTestWidget
 from qt_ui.carrier_settings_widget import CarrierSettingsWidget
 from qt_ui.four_phase_settings_widget import FourPhaseSettingsWidget
+from qt_ui.fourphase_details_widget import FourPhaseDetailsWidget
 from qt_ui.media_settings_widget import MediaSettingsWidget
 from qt_ui.neostim_settings_widget import NeoStimSettingsWidget
 from qt_ui.pulse_settings_widget import PulseSettingsWidget
@@ -32,7 +33,6 @@ from qt_ui.three_phase_settings_widget import ThreePhaseSettingsWidget
 from qt_ui.vibration_settings_widget import VibrationSettingsWidget
 from qt_ui.volume_control_widget import VolumeControlWidget
 from qt_ui.waveform_details_widget import WaveformDetailsWidget
-from qt_ui.fourphase_details_widget import FourPhaseDetailsWidget
 from qt_ui.widgets.focstim_device_stats_widget import FocStimDeviceStatsWidget
 from qt_ui.widgets.fourphase_widget_individual_electrodes import FourphaseWidgetIndividualElectrodes
 from qt_ui.widgets.threephase_widget import ThreephaseWidgetAlphaBeta
@@ -146,6 +146,7 @@ class Ui_MainWindow(object):
         self.page_fourphase.setObjectName(u"page_fourphase")
         self.graphicsView_fourphase = FourphaseWidgetIndividualElectrodes(self.page_fourphase)
         self.graphicsView_fourphase.setObjectName(u"graphicsView_fourphase")
+        self.graphicsView_fourphase.setGeometry(QRect(0, 0, 200, 200))
         self.stackedWidget_visual.addWidget(self.page_fourphase)
 
         self.verticalLayout.addWidget(self.stackedWidget_visual)

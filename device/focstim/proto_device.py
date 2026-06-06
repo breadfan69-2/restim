@@ -133,6 +133,7 @@ class FOCStimProtoDevice(QObject, OutputDevice):
         # self.transport.setRequestToSend(False)
         # self.transport.setDataTerminalReady(False)
         self.transport.setSettingsRestoredOnClose(False)
+        self.transport.errorOccurred.connect(self.on_connection_error)
         if success:
             def delayed_start():
                 # read all buffered data and discard it.
@@ -168,7 +169,8 @@ class FOCStimProtoDevice(QObject, OutputDevice):
                 self.api.request_stop_signal()
                 self.api.cancel_outstanding_requests()
                 self.transport.flush()
-        self.transport.close()
+            self.transport.close()
+            self.disconnected.emit()
         if self.notification_log:
             self.notification_log.close()
             self.notification_log = None
@@ -269,8 +271,10 @@ class FOCStimProtoDevice(QObject, OutputDevice):
             s = google.protobuf.text_format.MessageToString(response.response_lsm6dsox_start, as_one_line=True,
                                                             print_unknown_fields=True)
             logger.info(s)
-            self.acc_sensitivity = response.response_lsm6dsox_start.acc_sensitivity
-            self.gyr_sensitivity = response.response_lsm6dsox_start.gyr_sensitivity
+            mili_g_to_acc = 0.001 * 9.80
+            mili_dps_to_rads = 1 / 360 / 1000 * (2 * np.pi)
+            self.acc_sensitivity = response.response_lsm6dsox_start.acc_sensitivity * mili_g_to_acc
+            self.gyr_sensitivity = response.response_lsm6dsox_start.gyr_sensitivity * mili_dps_to_rads
             self.start_signal_generation()
 
         fut = self.api.request_lsm6dsox_start(LSM6DSOX_SAMPLERATE_HZ, LSM6DSOX_ACC_FULLSCALE, LSM6DSOX_GYR_FULLSCALE)
@@ -387,7 +391,7 @@ class FOCStimProtoDevice(QObject, OutputDevice):
             self.teleplot.write_metrics(
                 pot=notif.volume
             )
-        self.new_device_volume_data.emit(int(np.round(notif.volume * 100)))
+        self.new_device_volume_data.emit(notif.volume)
 
     def handle_notification_currents(self, notif: NotificationCurrents):
         # print(notif)
@@ -533,6 +537,8 @@ class FOCStimProtoDevice(QObject, OutputDevice):
                 **{notif.id: notif.value}
             )
 
+    disconnected = Signal()
+
     new_imu_sensor_data = Signal(IMUData)
     new_as5311_sensor_data = Signal(AS5311Data)
     new_pressure_sensor_data = Signal(PressureData)
@@ -542,6 +548,6 @@ class FOCStimProtoDevice(QObject, OutputDevice):
     new_model_estimation_data = Signal(float, float, float, float,
                                       float, float, float, float)
     new_battery_data = Signal(int)
-    new_device_volume_data = Signal(int)
+    new_device_volume_data = Signal(float)
     new_resistance_data = Signal(complex, complex, complex, complex)
     new_utilization_data = Signal(float, float)

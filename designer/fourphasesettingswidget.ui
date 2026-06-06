@@ -28,7 +28,7 @@
        </widget>
       </item>
       <item row="0" column="1">
-       <widget class="QDoubleSpinBox" name="a_power">
+       <widget class="SpinBoxWithProgressIndicator" name="a_power">
         <property name="keyboardTracking">
          <bool>false</bool>
         </property>
@@ -50,10 +50,42 @@
         </property>
        </widget>
       </item>
+      <item row="1" column="1">
+       <widget class="SpinBoxWithProgressIndicator" name="b_power">
+        <property name="keyboardTracking">
+         <bool>false</bool>
+        </property>
+        <property name="minimum">
+         <double>-10.000000000000000</double>
+        </property>
+        <property name="maximum">
+         <double>10.000000000000000</double>
+        </property>
+        <property name="singleStep">
+         <double>0.100000000000000</double>
+        </property>
+       </widget>
+      </item>
       <item row="2" column="0">
        <widget class="QLabel" name="label_3">
         <property name="text">
          <string>C power [dB]</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="SpinBoxWithProgressIndicator" name="c_power">
+        <property name="keyboardTracking">
+         <bool>false</bool>
+        </property>
+        <property name="minimum">
+         <double>-10.000000000000000</double>
+        </property>
+        <property name="maximum">
+         <double>10.000000000000000</double>
+        </property>
+        <property name="singleStep">
+         <double>0.100000000000000</double>
         </property>
        </widget>
       </item>
@@ -64,40 +96,8 @@
         </property>
        </widget>
       </item>
-      <item row="1" column="1">
-       <widget class="QDoubleSpinBox" name="b_power">
-        <property name="keyboardTracking">
-         <bool>false</bool>
-        </property>
-        <property name="minimum">
-         <double>-10.000000000000000</double>
-        </property>
-        <property name="maximum">
-         <double>10.000000000000000</double>
-        </property>
-        <property name="singleStep">
-         <double>0.100000000000000</double>
-        </property>
-       </widget>
-      </item>
-      <item row="2" column="1">
-       <widget class="QDoubleSpinBox" name="c_power">
-        <property name="keyboardTracking">
-         <bool>false</bool>
-        </property>
-        <property name="minimum">
-         <double>-10.000000000000000</double>
-        </property>
-        <property name="maximum">
-         <double>10.000000000000000</double>
-        </property>
-        <property name="singleStep">
-         <double>0.100000000000000</double>
-        </property>
-       </widget>
-      </item>
       <item row="3" column="1">
-       <widget class="QDoubleSpinBox" name="d_power">
+       <widget class="SpinBoxWithProgressIndicator" name="d_power">
         <property name="keyboardTracking">
          <bool>false</bool>
         </property>
@@ -112,70 +112,71 @@
         </property>
        </widget>
       </item>
-        <item row="4" column="0" colspan="2">
-         <widget class="Line" name="line">
-          <property name="orientation">
-           <enum>Qt::Orientation::Horizontal</enum>
-          </property>
-         </widget>
-        </item>
-        <item row="5" column="0">
-         <widget class="QLabel" name="label_6">
-          <property name="text">
-           <string>Center reduction</string>
-          </property>
-         </widget>
-        </item>
-        <item row="5" column="1">
-         <widget class="QWidget" name="widget" native="true">
-          <layout class="QHBoxLayout" name="horizontalLayout">
-           <property name="leftMargin">
-            <number>0</number>
+      <item row="4" column="0" colspan="2">
+       <widget class="Line" name="line">
+        <property name="orientation">
+         <enum>Qt::Orientation::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="0">
+       <widget class="QLabel" name="label_6">
+        <property name="text">
+         <string>Center reduction</string>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="1">
+       <widget class="QWidget" name="widget" native="true">
+        <layout class="QHBoxLayout" name="horizontalLayout">
+         <property name="leftMargin">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <property name="rightMargin">
+          <number>0</number>
+         </property>
+         <property name="bottomMargin">
+          <number>0</number>
+         </property>
+         <item>
+          <widget class="SpinBoxWithProgressIndicator" name="center_reduction">
+           <property name="suffix">
+            <string> %</string>
            </property>
-           <property name="topMargin">
-            <number>0</number>
-           </property>
-           <property name="rightMargin">
-            <number>0</number>
-           </property>
-           <property name="bottomMargin">
-            <number>0</number>
-           </property>
-           <item>
-            <widget class="QDoubleSpinBox" name="center_reduction">
-             <property name="keyboardTracking">
-            <bool>false</bool>
-             </property>
-             <property name="decimals">
+           <property name="decimals">
             <number>1</number>
-             </property>
-             <property name="suffix">
-            <string>%</string>
-             </property>
-             <property name="minimum">
+           </property>
+           <property name="minimum">
             <double>0.000000000000000</double>
-             </property>
-             <property name="maximum">
+           </property>
+           <property name="maximum">
             <double>20.000000000000000</double>
-             </property>
-             <property name="singleStep">
+           </property>
+           <property name="singleStep">
             <double>0.100000000000000</double>
-             </property>
-             <property name="value">
-            <double>14.000000000000000</double>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QToolButton" name="center_reduction_reset">
-             <property name="text">
-            <string>Reset</string>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </widget>
-        </item>
+           </property>
+           <property name="value">
+            <double>10.000000000000000</double>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QToolButton" name="center_reduction_reset">
+           <property name="text">
+            <string/>
+           </property>
+           <property name="icon">
+            <iconset resource="../resources/restim.qrc">
+             <normaloff>:/restim/arrow-round_poly.svg</normaloff>:/restim/arrow-round_poly.svg</iconset>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
      </layout>
     </widget>
    </item>
@@ -194,6 +195,15 @@
    </item>
   </layout>
  </widget>
- <resources/>
+ <customwidgets>
+  <customwidget>
+   <class>SpinBoxWithProgressIndicator</class>
+   <extends>QDoubleSpinBox</extends>
+   <header>qt_ui/widgets/spinbox_with_progress_indicator.h</header>
+  </customwidget>
+ </customwidgets>
+ <resources>
+  <include location="../resources/restim.qrc"/>
+ </resources>
  <connections/>
 </ui>

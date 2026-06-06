@@ -14,3 +14,4 @@ pyqtgraph
 ahrs
 pyyaml
 pynput
+intelhex

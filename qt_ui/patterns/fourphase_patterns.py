@@ -189,16 +189,16 @@ class FourphaseMotionGenerator(QtCore.QObject):
         if not self.any_scripts_loaded() or (self._finish_active and finish_blend >= 1.0 and not is_blending):
             active_pattern = self._finish_pattern if self._finish_active else self.pattern
             if isinstance(active_pattern, MousePattern):
-                if self.pattern.last_position_is_mouse_position():
-                    a = self.intensity_a.last_value()
-                    b = self.intensity_b.last_value()
-                    c = self.intensity_c.last_value()
-                    d = self.intensity_d.last_value()
-                else:
+                if active_pattern.use_lag_compensation():
                     a = self.intensity_a.interpolate(lagged_time)
                     b = self.intensity_b.interpolate(lagged_time)
                     c = self.intensity_c.interpolate(lagged_time)
                     d = self.intensity_d.interpolate(lagged_time)
+                else:
+                    a = self.intensity_a.last_value()
+                    b = self.intensity_b.last_value()
+                    c = self.intensity_c.last_value()
+                    d = self.intensity_d.last_value()
                 self.position_updated.emit(a, b, c, d)
             else:
                 a, b, c, d = active_pattern.update(dt * self.velocity)

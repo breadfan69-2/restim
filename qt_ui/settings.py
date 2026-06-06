@@ -82,7 +82,7 @@ class NonPersistentSetting:
 
 
 pulse_carrier_frequency = Setting('carrier/pulse_carrier_frequency', 700, float)
-pulse_frequency = Setting('carrier/pulse_frequency', 50, float)
+pulse_frequency = Setting('carrier/pulse_frequency', 70, float)
 pulse_width = Setting('carrier/pulse_width', 5, float)
 pulse_interval_random = Setting('carrier/pulse_interval_random', 10, float)
 pulse_rise_time = Setting('carrier/pulse_rise_time', 10, float)
@@ -126,7 +126,7 @@ vibration_2_random = Setting('vibration/vibration_2_random', 0, float)
 
 threephase_calibration_neutral = Setting('hw_calibration/neutral', 0.0, float)
 threephase_calibration_right = Setting('hw_calibration/right', 0.0, float)
-threephase_calibration_center = Setting('hw_calibration/center', -0.7, float)
+threephase_calibration_center = Setting('hw_calibration/center', -0.604, float)
 
 threephase_transform_combobox_selection = Setting('threephase_transform/combobox_selection', 0, int)
 threephase_transform_enabled = Setting('threephase_transform/enabled', False, bool)
@@ -204,6 +204,9 @@ udp_localhost_only = Setting("network/udp-localhost-only", False, bool)
 serial_enabled = Setting("network/serial-enabled", False, bool)
 serial_port = Setting("network/serial-port", "COM20", str)
 serial_auto_expand = Setting("network/serial-auto-expand", True, bool)
+rest_enabled = Setting("network/rest-enabled", True, bool)
+rest_port = Setting("network/rest-port", 12348, int)
+rest_localhost_only = Setting("network/rest-localhost-only", False, bool)
 
 
 focstim_serial_port = Setting("focstim/serial_port", '', str)
@@ -217,6 +220,49 @@ focstim_password = Setting("focstim/wifi_password", '', str)
 focstim_ip = Setting("focstim/wifi_ip", '', str)
 
 neostim_serial_port = Setting("neostim/serial_port", '', str)
+
+sensor_as5311_absolute_threshold = Setting('sensor_as5311_absolute/threshold', .006, float)
+sensor_as5311_absolute_range = Setting('sensor_as5311_absolute/range', .001, float)
+sensor_as5311_absolute_volume = Setting('sensor_as5311_absolute/volume', -5, float)
+sensor_as5311_absolute_decay = Setting('sensor_as5311_absolute/decay', 4.0, float)
+
+sensor_as5311_highpass_threshold = Setting('sensor_as5311_highpass/threshold', .0001, float)
+sensor_as5311_highpass_range = Setting('sensor_as5311_highpass/range', .001, float)
+sensor_as5311_highpass_volume = Setting('sensor_as5311_highpass/volume', 5, float)
+sensor_as5311_highpass_absolute = Setting('sensor_as5311_highpass/absolute', False, bool)
+
+sensor_as5311_velocity_threshold = Setting('sensor_as5311_velocity/threshold', .006, float)
+sensor_as5311_velocity_range = Setting('sensor_as5311_velocity/range', .001, float)
+sensor_as5311_velocity_volume = Setting('sensor_as5311_velocity/volume', 5, float)
+sensor_as5311_velocity_decay = Setting('sensor_as5311_velocity/decay', 0.5, float)
+sensor_as5311_velocity_absolute = Setting('sensor_as5311_velocity/absolute', False, bool)
+
+sensor_imu_velocity_threshold = Setting('sensor_imu_velocity/threshold', 10, float)
+sensor_imu_velocity_range = Setting('sensor_imu_velocity/range', 30, float)
+sensor_imu_velocity_volume = Setting('sensor_imu_velocity/volume', 5, float)
+sensor_imu_velocity_decay = Setting('sensor_imu_velocity/decay', 0.5, float)
+sensor_imu_velocity_absolute = Setting('sensor_imu_velocity/absolute', False, bool)
+
+sensor_imu_hipthrust_position = Setting('sensor_imu_hipthrust/position', .020, float)
+sensor_imu_hipthrust_alpha = Setting('sensor_imu_hipthrust/alpha', 0.2, float)
+sensor_imu_hipthrust_position_volume = Setting('sensor_imu_hipthrust/position_volume', 0, float)
+sensor_imu_hipthrust_velocity = Setting('sensor_imu_hipthrust/velocity', .2, float)
+sensor_imu_hipthrust_velocity_volume = Setting('sensor_imu_hipthrust/velocity_volume', 0, float)
+
+sensor_pressure_depletion_threshold = Setting('sensor_pressure_depletion/threshold', 1300, float)
+sensor_pressure_depletion_ramp_time = Setting('sensor_pressure_depletion/ramp_time', 30, float)
+sensor_pressure_depletion_start_volume = Setting('sensor_pressure_depletion/start_volume', 70, float)
+
+sensor_pressure_absolute_threshold = Setting('sensor_pressure_absolute/threshold', 100000, float)
+sensor_pressure_absolute_range = Setting('sensor_pressure_absolute/range', 10000, float)
+sensor_pressure_absolute_volume = Setting('sensor_pressure_absolute/volume', 0, float)
+
+sensor_imu_source_index = Setting('sensor_imu/source_index', 1, int)
+sensor_imu_pull_url = Setting('sensor_imu/pull_url', '', str)
+sensor_as5311_source_index = Setting('sensor_as5311/source_index', 1, int)
+sensor_as5311_pull_url = Setting('sensor_as5311/pull_url', '', str)
+sensor_pressure_source_index = Setting('sensor_pressure/source_index', 1, int)
+sensor_pressure_pull_url = Setting('sensor_pressure/pull_url', '', str)
 
 # Pattern preferences - we'll store this as a JSON string and convert to dict
 import json

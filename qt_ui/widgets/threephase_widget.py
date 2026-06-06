@@ -4,13 +4,13 @@ import math
 import numpy as np
 
 from PySide6.QtCore import QPoint, QPointF
-from PySide6.QtWidgets import QGraphicsView, QGraphicsEllipseItem
+from PySide6.QtWidgets import QGraphicsView, QGraphicsEllipseItem, QGraphicsPathItem
 
 from qt_ui import resources
 from stim_math.threephase_coordinate_transform import ThreePhaseCoordinateTransform, \
     ThreePhaseCoordinateTransformMapToEdge
 
-from PySide6.QtGui import QColor, QMouseEvent
+from PySide6.QtGui import QColor, QMouseEvent, QPainterPath
 from PySide6 import QtCore, QtWidgets, QtGui, QtSvgWidgets, QtSvg
 from PySide6.QtCore import Qt, QByteArray, QFile, QIODevice
 
@@ -55,25 +55,27 @@ class ThreephaseWidgetBase(QtWidgets.QGraphicsView):
         self.fitInView(-100, -100, 200, 200, Qt.KeepAspectRatio)
 
     def mousePressEvent(self, event: QMouseEvent):
-        self.mouse_event_screen_pos(event.x(), event.y(), event.buttons())
+        self.mouse_event_screen_pos(event.x(), event.y(), event.buttons(), event.modifiers())
 
     def mouseDoubleClickEvent(self, event: QtGui.QMouseEvent) -> None:
-        self.mouse_event_screen_pos(event.x(), event.y(), event.buttons())
+        self.mouse_event_screen_pos(event.x(), event.y(), event.buttons(), event.modifiers())
 
     def mouseReleaseEvent(self, event: QMouseEvent):
-        self.mouse_event_screen_pos(event.x(), event.y(), event.buttons())
+        self.mouse_event_screen_pos(event.x(), event.y(), event.buttons(), event.modifiers())
 
     def mouseMoveEvent(self, event: QMouseEvent):
-        self.mouse_event_screen_pos(event.x(), event.y(), event.buttons())
+        self.mouse_event_screen_pos(event.x(), event.y(), event.buttons(), event.modifiers())
 
-    def mouse_event_screen_pos(self, mouse_x, mouse_y, buttons: QtCore.Qt.MouseButtons):
+    def mouse_event_screen_pos(self, mouse_x, mouse_y, buttons: QtCore.Qt.MouseButtons,
+                               modifiers: QtCore.Qt.KeyboardModifier):
         view_pos = QPoint(mouse_x, mouse_y)
         scene_pos = self.mapToScene(view_pos)
         item_pos = self.background_svg.mapToItem(self.background_svg, scene_pos)
         a, b = item_pos_to_ab(item_pos.x(), item_pos.y())
-        return self.mouse_event(a, b, buttons)
+        return self.mouse_event(a, b, buttons, modifiers)
 
-    def mouse_event(self, alpha, beta, buttons: QtCore.Qt.MouseButtons):
+    def mouse_event(self, alpha, beta, buttons: QtCore.Qt.MouseButtons,
+                    modifiers: QtCore.Qt.KeyboardModifier):
         # overload me
         # if buttons & QtCore.Qt.MouseButton.LeftButton:
         #     do stuff
@@ -160,6 +162,10 @@ class ThreephaseWidgetAlphaBeta(ThreephaseWidgetBase):
 
         self.sensor_widget = None
 
+        self.path_item = QGraphicsPathItem()
+        self.path_item.setPen(QColor.fromRgb(150, 150, 150))
+        self.scene.addItem(self.path_item)
+
     def set_sensor_widget(self, sensor_widget):
         self.sensor_widget = sensor_widget
 
@@ -189,6 +195,19 @@ class ThreephaseWidgetAlphaBeta(ThreephaseWidgetBase):
         # draw dot
         x, y = ab_to_item_pos(a, b)
         self.dot.setPos(x - 5, y - 5)
+
+    def set_path(self, path):
+        painter_path = QPainterPath()
+        if path:
+            x, y = path[0]
+            x, y = ab_to_item_pos(x, y)
+            painter_path.moveTo(QPointF(x, y))
+
+        for x, y in path[1:]:
+            x, y = ab_to_item_pos(x, y)
+            painter_path.lineTo(QPointF(x, y))
+
+        self.path_item.setPath(painter_path)
 
     def refresh_transform(self):
         if self.transform_params is not None and self.transform_params.transform_enabled.last_value():
@@ -238,12 +257,8 @@ class ThreephaseWidgetAlphaBeta(ThreephaseWidgetBase):
         self.arc.setLength(self.transform_params.map_to_edge_length.last_value())
         self.arc.setVisible(bool(self.transform_params.map_to_edge_enabled.last_value()))
 
-    def mouse_event(self, alpha, beta, buttons: QtCore.Qt.MouseButtons):
-        if buttons & QtCore.Qt.MouseButton.LeftButton:
-            pass
-        else:
-            return
-
+    def mouse_event(self, alpha, beta, buttons: QtCore.Qt.MouseButtons,
+                    modifiers: QtCore.Qt.KeyboardModifier):
         norm = (alpha ** 2 + beta ** 2) ** .5
         if norm >= 1:
             alpha /= norm
@@ -256,9 +271,9 @@ class ThreephaseWidgetAlphaBeta(ThreephaseWidgetBase):
             alpha /= norm
             beta /= norm
 
-        self.mousePositionChanged.emit(alpha, beta)
+        self.mousePositionChanged.emit(alpha, beta, buttons, modifiers)
 
-    mousePositionChanged = QtCore.Signal(float, float)
+    mousePositionChanged = QtCore.Signal(float, float, QtCore.Qt.MouseButtons, QtCore.Qt.KeyboardModifier)
 
 
 class Path(QtWidgets.QGraphicsPathItem):
@@ -402,28 +417,15 @@ class ThreephaseWidgetCalibration(ThreephaseWidgetBase):
         self.right = right
         self.refresh()
 
-    def mouse_event(self, alpha, beta, buttons: QtCore.Qt.MouseButtons):
+    def mouse_event(self, alpha, beta, buttons: QtCore.Qt.MouseButtons,
+                    modifiers: QtCore.Qt.KeyboardModifier):
         if buttons & QtCore.Qt.MouseButton.LeftButton:
-            pass
-        else:
-            return
+            norm = (alpha ** 2 + beta ** 2) ** .5
+            if norm > 0:
+                alpha /= norm
+                beta /= norm
 
-        norm = (alpha ** 2 + beta ** 2) ** .5
-        if norm > 0:
-            alpha /= norm
-            beta /= norm
-
-        old_neutral = self.neutral.last_value()
-        old_right = self.right.last_value()
-
-        neutral_adj = alpha * 0.1
-        right_adj = -beta * 0.1
-
-        neutral = old_neutral + neutral_adj
-        right = old_right + right_adj
-
-        self.calibrationParametersChanged.emit(neutral, right)
-        self.refresh()
+            self.clicked.emit(alpha, beta)
 
     def refresh(self):
         a = self.neutral.last_value()
@@ -446,4 +448,5 @@ class ThreephaseWidgetCalibration(ThreephaseWidgetBase):
         x, y = ab_to_item_pos(a, b)
         self.path.setSource(QtCore.QPointF(x, y))
 
+    clicked = QtCore.Signal(float, float)
     calibrationParametersChanged = QtCore.Signal(float, float)

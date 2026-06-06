@@ -58,6 +58,8 @@ app = BUNDLE(
     icon='resources/favicon.png',
     bundle_identifier=None,
     info_plist={
+        'CFBundleName': 'restim',
+        'CFBundleDisplayName': 'restim',
         'NSHighResolutionCapable': 'True',
     },
 )
